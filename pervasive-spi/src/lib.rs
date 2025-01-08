@@ -6,7 +6,6 @@
 pub mod rp2040;
 
 use defmt::trace;
-use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
 
 /// A trait for pin types that allows running a closure with the pin configured as an input.
@@ -96,7 +95,7 @@ where
             self.dc.set_high()?;
         }
 
-        for &(mut byte) in data {
+        for &byte in data {
             self.cs.set_low()?;
 
             for i in 0..8 {
