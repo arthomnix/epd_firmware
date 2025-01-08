@@ -1,0 +1,13 @@
+[package]
+name = "tp370pgh01"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pervasive-spi = { path = "../pervasive-spi" }
+embedded-hal.workspace = true
+defmt.workspace = true
+cortex-m = { workspace = true, optional = true }
+
+[features]
+rp2040 = ["pervasive-spi/rp2040", "cortex-m"]

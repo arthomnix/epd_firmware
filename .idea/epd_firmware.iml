@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/fw16_epd_bootloader/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fw16_epd_bsp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/littlefs2_rp2040/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fw16-epd-bsp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/pervasive-spi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tp370pgh01/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fw16-epd-main/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/fw16_epd_bsp/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/fw16-epd-bsp/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

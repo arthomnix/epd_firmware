@@ -1,0 +1,13 @@
+[package]
+name = "pervasive-spi"
+version = "0.1.0"
+edition = "2021"
+description = "Bitbang driver for the SPI-derived protocol used by Pervasive Displays e-paper displays"
+
+[dependencies]
+embedded-hal.workspace = true
+defmt.workspace = true
+rp2040-hal = { workspace = true, optional = true }
+
+[features]
+rp2040 = ["rp2040-hal"]

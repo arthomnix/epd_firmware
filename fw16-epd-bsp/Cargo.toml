@@ -1,0 +1,22 @@
+[package]
+name = "fw16-epd-bsp"
+version = "0.1.0"
+authors = ["arthomnix"]
+edition = "2021"
+description = "Board Support Package for arthomnix's touchscreen e-paper input module for the Framework 16"
+license = "MIT"
+
+[dependencies]
+cortex-m-rt = { workspace = true, optional = true }
+rp2040-hal.workspace = true
+rp2040-boot2 = { version = "0.3.0", optional = true }
+
+[features]
+default = ["boot2", "rt", "critical-section-impl", "rom-func-cache", "rom-v2-intrinsics"]
+critical-section-impl = ["rp2040-hal/critical-section-impl"]
+boot2 = ["rp2040-boot2"]
+rt = ["cortex-m-rt", "rp2040-hal/rt"]
+rp2040-e5 = ["rp2040-hal/rp2040-e5"]
+rom-func-cache = ["rp2040-hal/rom-func-cache"]
+disable-intrinsics = ["rp2040-hal/disable-intrinsics"]
+rom-v2-intrinsics = ["rp2040-hal/rom-v2-intrinsics"]
