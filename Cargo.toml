@@ -3,7 +3,7 @@ resolver = "2"
 
 members = [
     "fw16-epd-bsp",
-    "fw16-epd-main",
+    "fw16-epd-main", "fw16-epd-program-interface",
     "pervasive-spi",
     "tp370pgh01",
 ]
@@ -22,3 +22,4 @@ portable-atomic = { version = "1.10", features = ["critical-section"] }
 mcp9808 = "0.4"
 usb-device = "0.3"
 usbd-serial = "0.2"
+crc32fast = { version = "1.4", default-features = false }

@@ -1,0 +1,7 @@
+[package]
+name = "fw16-epd-program-interface"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tp370pgh01 = { path = "../tp370pgh01" }

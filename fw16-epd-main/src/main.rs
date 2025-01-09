@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+mod programs;
+
 #[allow(unused_imports)]
 use panic_probe as _;
 #[allow(unused_imports)]
@@ -30,6 +32,7 @@ use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::Tp370pgh01;
+use crate::programs::Programs;
 
 static CORE1_STACK: Stack<8192> = Stack::new();
 
@@ -154,6 +157,12 @@ fn main() -> ! {
             }
         }
     }).unwrap();
+
+
+    let programs = Programs::new();
+    for _program in programs {
+        cortex_m::asm::delay(0);
+    }
 
     loop {
         cortex_m::asm::wfi();
