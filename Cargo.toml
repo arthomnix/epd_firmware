@@ -17,3 +17,8 @@ embedded-hal-bus = "0.2"
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
+critical-section = "1.2"
+portable-atomic = { version = "1.10", features = ["critical-section"] }
+mcp9808 = "0.4"
+usb-device = "0.3"
+usbd-serial = "0.2"

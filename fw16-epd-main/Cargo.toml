@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fw16-epd-bsp = { path = "../fw16-epd-bsp" }
+tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040"] }
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
 embedded-hal.workspace = true
@@ -12,3 +13,8 @@ embedded-hal-bus.workspace = true
 defmt.workspace = true
 defmt-rtt.workspace = true
 panic-probe.workspace = true
+critical-section.workspace = true
+portable-atomic.workspace = true
+mcp9808.workspace = true
+usb-device.workspace = true
+usbd-serial.workspace = true
