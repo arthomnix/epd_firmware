@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 fw16-epd-bsp = { path = "../fw16-epd-bsp" }
-fw16-epd-program-interface = { path = "../fw16-epd-program-interface" }
+fw16-epd-program-interface = { path = "../fw16-epd-program-interface", features = ["embedded-graphics"] }
 tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040"] }
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
@@ -20,3 +20,4 @@ mcp9808.workspace = true
 usb-device.workspace = true
 usbd-serial.workspace = true
 crc32fast.workspace = true
+embedded-graphics.workspace = true

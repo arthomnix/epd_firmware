@@ -23,3 +23,4 @@ mcp9808 = "0.4"
 usb-device = "0.3"
 usbd-serial = "0.2"
 crc32fast = { version = "1.4", default-features = false }
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
