@@ -63,6 +63,7 @@ pub struct Tp370pgh01<Cs, Sda, Sck, Dc, Busy, Reset, Delay, SpiDelay> {
     busy: Busy,
     reset: Reset,
     delay: Delay,
+    psr: Option<[u8; 2]>,
 }
 
 impl<Cs, Sda, Sck, Dc, Busy, Reset, Delay, SpiDelay, Error>
@@ -108,6 +109,7 @@ where
             busy,
             reset,
             delay,
+            psr: None,
         }
     }
 
@@ -138,6 +140,10 @@ where
     }
 
     fn get_psr(&mut self) -> Result<[u8; 2], Tp370pgh01Error<Error>> {
+        if let Some(psr) = self.psr {
+            return Ok(psr);
+        }
+
         debug!("tp370pgh01: reading PSR");
         self.spi.write_register(&[0xa2])?;
         let mut buf = [0u8; 2];
@@ -172,6 +178,8 @@ where
 
         self.spi.read(&mut buf)?;
         debug!("tp370pgh01: found PSR: {} {}", buf[0], buf[1]);
+
+        self.psr.replace(buf);
 
         Ok(buf)
     }

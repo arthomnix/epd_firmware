@@ -17,7 +17,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder};
 use embedded_graphics::text::Text;
-use embedded_hal::digital::PinState;
+use embedded_hal::digital::{OutputPin, PinState};
 use embedded_hal::i2c::I2c;
 use embedded_hal_bus::i2c::RefCellDevice;
 use mcp9808::MCP9808;
@@ -47,7 +47,7 @@ static CORE1_STACK: Stack<8192> = Stack::new();
 static GLOBAL_TOUCH_INT_PIN: Mutex<RefCell<Option<EpdTouchInt>>> = Mutex::new(RefCell::new(None));
 static GLOBAL_I2C: Mutex<RefCell<Option<I2C<I2C0, (I2CSda, I2CScl)>>>> = Mutex::new(RefCell::new(None));
 
-static IMAGE_BUFFER: Mutex<RefCell<[u8; tp370pgh01::IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; tp370pgh01::IMAGE_BYTES]));
+static IMAGE_BUFFER: Mutex<RefCell<[u8; IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; tp370pgh01::IMAGE_BYTES]));
 static DO_REFRESH: AtomicBool = AtomicBool::new(false);
 static FAST_REFRESH: AtomicBool = AtomicBool::new(false);
 static TEMP: AtomicU8 = AtomicU8::new(20);
@@ -98,6 +98,14 @@ fn main() -> ! {
 
 
     let _power = pins.epd_pwr_sw.into_push_pull_output_in_state(PinState::Low);
+
+    let mut touch_reset = pins.epd_touch_rst.into_push_pull_output_in_state(PinState::High);
+    cortex_m::asm::delay(120000);
+    touch_reset.set_low().unwrap();
+    cortex_m::asm::delay(120000);
+    touch_reset.set_high().unwrap();
+    cortex_m::asm::delay(1200000);
+
 
     let cs: EpdCs = pins.spi3_epd_cs.reconfigure();
     let dc: EpdDc = pins.epd_dc.reconfigure();
