@@ -70,10 +70,8 @@ where
     ///
     /// * `cs`: The chip select pin (output).
     /// * `sda`: The SDA pin. The type must implement both the `WithInput` and `WithOutput` traits.
-    ///          An implementation for both of these on the RP2040 is provided if the `rp2040`
-    ///          feature is enabled. For internal reasons, the trait is implemented on `Option<Pin>`
-    ///          instead of `Pin` on the RP2040, but reading and writing will panic if `None` is
-    ///          provided.
+    ///          If the `rp2040` feature is enabled, the [rp2040] module provides an `IoPin` type
+    ///          implementing both of these for the RP2040.
     /// * `scl`: The SCL pin (output).
     /// * `dc`: The D/C (data/command) pin (output).
     /// * `delay`: An object implementing `PervasiveSpiDelays`, describing delays to be inserted at

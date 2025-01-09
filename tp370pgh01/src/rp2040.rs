@@ -1,5 +1,9 @@
 use pervasive_spi::PervasiveSpiDelays;
 
+pub use pervasive_spi::rp2040::IoPin;
+
+/// A type implementing `PervasiveSpiDelays` designed for use with the TP370PGH01 display on the
+/// RP2040 (running at its default speed).
 pub struct Rp2040PervasiveSpiDelays;
 
 impl PervasiveSpiDelays for Rp2040PervasiveSpiDelays {

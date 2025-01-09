@@ -20,7 +20,7 @@ use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
-use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdReset, EpdSck, EpdSdaRead, EpdTouchInt, I2CScl, I2CSda, Pins};
+use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, I2CScl, I2CSda, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
 use fw16_epd_bsp::hal::clocks::ClockSource;
 use fw16_epd_bsp::hal::fugit::RateExtU32;
@@ -28,7 +28,7 @@ use fw16_epd_bsp::hal::gpio::Interrupt::EdgeLow;
 use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
-use tp370pgh01::rp2040::Rp2040PervasiveSpiDelays;
+use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::Tp370pgh01;
 
 static CORE1_STACK: Stack<8192> = Stack::new();
@@ -76,7 +76,7 @@ fn main() -> ! {
     let dc: EpdDc = pins.epd_dc.reconfigure();
     let busy: EpdBusy = pins.epd_busy.reconfigure();
     let rst: EpdReset = pins.epd_rst.reconfigure();
-    let sda: EpdSdaRead = pins.spi3_epd_sda.reconfigure();
+    let sda: EpdSdaWrite = pins.spi3_epd_sda.reconfigure();
     let sck: EpdSck = pins.spi3_epd_sck.reconfigure();
 
     let i2c_sda: I2CSda = pins.i2c_sda.reconfigure();
@@ -131,7 +131,7 @@ fn main() -> ! {
             pac::NVIC::unmask(interrupt::USBCTRL_IRQ);
         }
 
-        let mut epd = Tp370pgh01::new(cs, Some(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
+        let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
         epd.hard_reset().unwrap();
 
         let mut prev_image = [0u8; tp370pgh01::IMAGE_BYTES];

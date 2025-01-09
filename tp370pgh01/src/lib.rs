@@ -83,10 +83,8 @@ where
     ///
     /// * `cs` - Chip select pin (output).
     /// * `sda` - SDA pin (bidirectional). This must implement both the `WithInput` and `WithOutput`
-    ///          traits from the `pervasive-spi` crate. An implementation for the RP2040 is provided
-    ///          in that crate if the `rp2040` feature is enabled. Note that on the RP2040, the pin
-    ///          must be wrapped in the Option, but all display operations will panic if None is
-    ///          provided.
+    ///          traits from the `pervasive-spi` crate. That crate provides a type implementing
+    ///          these traits for the RP2040 if the `rp2040` feature is enabled.
     /// * `sck` - SCK pin (output).
     /// * `dc` - D/C (data/command) pin (output).
     /// * `reset` - Display reset pin (output).
