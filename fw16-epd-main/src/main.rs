@@ -11,9 +11,12 @@ use defmt_rtt as _;
 use core::cell::{RefCell, RefMut};
 use critical_section::Mutex;
 use defmt::{debug, error, info, trace};
+use embedded_graphics::mono_font::ascii::FONT_10X20;
+use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder};
+use embedded_graphics::text::Text;
 use embedded_hal::digital::PinState;
 use embedded_hal::i2c::I2c;
 use embedded_hal_bus::i2c::RefCellDevice;
@@ -158,8 +161,8 @@ fn main() -> ! {
         let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
         epd.hard_reset().unwrap();
 
-        let mut prev_image = [0u8; tp370pgh01::IMAGE_BYTES];
-        let mut image = [0u8; tp370pgh01::IMAGE_BYTES];
+        let mut prev_image = [0u8; IMAGE_BYTES];
+        let mut image = [0u8; IMAGE_BYTES];
 
         loop {
             cortex_m::asm::wfe();
@@ -179,6 +182,17 @@ fn main() -> ! {
         }
     }).unwrap();
 
+
+    let mut draw_target = EpdDrawTarget::new(ProgramFunctionTable {
+        write_image,
+        refresh,
+        refresh_fast,
+    });
+
+    Text::new("Hello, World!", Point::new(20, 20), MonoTextStyle::new(&FONT_10X20, BinaryColor::On))
+        .draw(&mut draw_target)
+        .unwrap();
+    draw_target.refresh();
 
     let programs = Programs::new();
     for _program in programs {
@@ -221,6 +235,7 @@ fn USBCTRL_IRQ() {
 
 #[interrupt]
 fn IO_IRQ_BANK0() {
+    static mut FIRST_EVENT: bool = true;
     static mut TOUCH_INT_PIN: Option<EpdTouchInt> = None;
     static mut I2C: Option<I2C<I2C0, (I2CSda, I2CScl)>> = None;
     static mut PREV_POS: Point = Point::new(0, 0);
@@ -252,7 +267,9 @@ fn IO_IRQ_BANK0() {
         };
         TEMP.store(temp, Ordering::Relaxed);
 
-        if let Some(int) = TOUCH_INT_PIN {
+        if *FIRST_EVENT == true {
+            *FIRST_EVENT = false;
+        } else if let Some(int) = TOUCH_INT_PIN {
             if int.interrupt_status(EdgeLow) {
                 let mut buf = [0u8; 9];
                 i2c.write_read(0x38u8, &[0x00], &mut buf).unwrap();
