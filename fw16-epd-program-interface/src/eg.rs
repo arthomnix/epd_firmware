@@ -8,7 +8,8 @@ use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
 use crate::ProgramFunctionTable;
 
 pub struct EpdDrawTarget {
-    functions: ProgramFunctionTable,
+    write_image: extern "C" fn(&[u8; IMAGE_BYTES]),
+    refresh: extern "C" fn(bool),
     buf: [u8; IMAGE_BYTES],
 }
 
@@ -55,17 +56,16 @@ impl DrawTarget for EpdDrawTarget {
 }
 
 impl EpdDrawTarget {
-    pub const fn new(functions: ProgramFunctionTable) -> Self {
-        Self { functions, buf: [0; IMAGE_BYTES] }
+    pub const fn new(write_image: extern "C" fn(&[u8; IMAGE_BYTES]), refresh: extern "C" fn(bool)) -> Self {
+        Self {
+            write_image,
+            refresh,
+            buf: [0; IMAGE_BYTES]
+        }
     }
 
-    pub fn refresh(&self) {
-        (self.functions.write_image)(&self.buf);
-        (self.functions.refresh)();
-    }
-
-    pub fn refresh_fast(&self) {
-        (self.functions.write_image)(&self.buf);
-        (self.functions.refresh_fast)();
+    pub fn refresh(&self, fast_refresh: bool) {
+        (self.write_image)(&self.buf);
+        (self.refresh)(fast_refresh);
     }
 }

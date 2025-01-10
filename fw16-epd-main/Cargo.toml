@@ -1,6 +1,6 @@
 [package]
 name = "fw16-epd-main"
-version = "0.1.0"
+version = "0.1.0-alpha"
 edition = "2021"
 
 [dependencies]
@@ -22,3 +22,4 @@ usb-device.workspace = true
 usbd-serial.workspace = true
 crc32fast.workspace = true
 embedded-graphics.workspace = true
+heapless.workspace = true

@@ -2,6 +2,7 @@
 #![no_std]
 
 mod programs;
+mod gui;
 
 #[allow(unused_imports)]
 use panic_probe as _;
@@ -10,16 +11,9 @@ use defmt_rtt as _;
 
 use core::cell::RefCell;
 use critical_section::Mutex;
-use defmt::{debug, error, info, trace};
-use embedded_graphics::mono_font::ascii::FONT_10X20;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle};
-use embedded_graphics::text::Text;
+use defmt::{debug, info, trace, warn};
 use embedded_hal::digital::{OutputPin, PinState};
 use embedded_hal::i2c::I2c;
-use embedded_hal_bus::i2c::RefCellDevice;
 use mcp9808::MCP9808;
 use mcp9808::reg_res::ResolutionVal;
 use mcp9808::reg_temp_generic::ReadableTempRegister;
@@ -38,10 +32,10 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use fw16_epd_program_interface::eg::EpdDrawTarget;
-use fw16_epd_program_interface::ProgramFunctionTable;
+use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
-use crate::programs::Programs;
+//use crate::programs::Programs;
 
 static CORE1_STACK: Stack<8192> = Stack::new();
 
@@ -59,20 +53,89 @@ static mut GLOBAL_USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
+static TOUCH_EVENT_BUFFER: Mutex<RefCell<TouchEventBuffer>> = Mutex::new(RefCell::new(TouchEventBuffer::new()));
+
 extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
     critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
 }
 
-extern "C" fn refresh() {
+extern "C" fn refresh(fast_refresh: bool) {
     DO_REFRESH.store(true, Ordering::Relaxed);
-    FAST_REFRESH.store(false, Ordering::Relaxed);
+    FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
     cortex_m::asm::sev();
+    // Wait until the refresh has been initiated
+    while DO_REFRESH.load(Ordering::Relaxed) {}
 }
 
-extern "C" fn refresh_fast() {
-    DO_REFRESH.store(true, Ordering::Relaxed);
-    FAST_REFRESH.store(true, Ordering::Relaxed);
-    cortex_m::asm::sev();
+extern "C" fn next_touch_event() -> SafeOption<TouchEvent> {
+    critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).pop()).into()
+}
+
+unsafe extern "C" fn set_touch_enabled(enable: bool) {
+    if enable {
+        pac::NVIC::unpend(interrupt::IO_IRQ_BANK0);
+        pac::NVIC::unmask(interrupt::IO_IRQ_BANK0);
+    } else {
+        pac::NVIC::mask(interrupt::IO_IRQ_BANK0);
+        critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).clear());
+    }
+}
+
+struct TouchEventBuffer<const SIZE: usize = 32> {
+    inner: [TouchEvent; SIZE],
+    read_index: usize,
+    write_index: usize,
+}
+
+impl<const SIZE: usize> TouchEventBuffer<SIZE> {
+    const fn new() -> Self {
+        Self {
+            inner: [TouchEvent::new(); SIZE],
+            read_index: 0,
+            write_index: 0,
+        }
+    }
+
+    fn wrapping_inc_mut(n: &mut usize) {
+        if *n == SIZE - 1 {
+            *n = 0;
+        } else {
+            *n += 1;
+        }
+    }
+
+    fn wrapping_dec(n: usize) -> usize {
+        if n == 0 {
+            SIZE - 1
+        } else {
+            n - 1
+        }
+    }
+
+    fn pop(&mut self) -> Option<TouchEvent> {
+        if self.read_index == self.write_index {
+            None
+        } else {
+            let res = self.inner[self.read_index];
+            Self::wrapping_inc_mut(&mut self.read_index);
+            Some(res)
+        }
+    }
+
+    fn push(&mut self, item: TouchEvent) -> bool {
+        if self.write_index == Self::wrapping_dec(self.read_index) {
+            false
+        } else {
+            self.inner[self.write_index] = item;
+            Self::wrapping_inc_mut(&mut self.write_index);
+            true
+        }
+    }
+
+    fn clear(&mut self) {
+        self.read_index = 0;
+        self.write_index = 0;
+    }
 }
 
 #[entry]
@@ -95,7 +158,6 @@ fn main() -> ! {
     let mut id = [0u8; 8];
     unsafe { rp2040_flash::flash::flash_unique_id(&mut id, true) };
     let mut id = u64::from_be_bytes(id);
-    info!("Framework 16 EPD firmware version {}, serial no. {:x}", env!("CARGO_PKG_VERSION"), id);
     let mut serial_no = [0u8; 16];
     for c  in serial_no.iter_mut().rev() {
         let nibble = (id & 0x0f) as u8;
@@ -109,6 +171,8 @@ fn main() -> ! {
     // Safety: this function never returns, so we should be fine right?
     let serial_no: &'static str = unsafe { &*&raw const *core::str::from_utf8(&serial_no).unwrap() };
     unsafe { cortex_m::interrupt::enable() };
+
+    info!("Framework 16 EPD firmware version {}, serial no. {}", env!("CARGO_PKG_VERSION"), serial_no);
 
     let mut sio = Sio::new(pac.SIO);
     let pins = Pins::new(
@@ -139,6 +203,8 @@ fn main() -> ! {
     let i2c_sda: I2CSda = pins.i2c_sda.reconfigure();
     let i2c_scl: I2CScl = pins.i2c_scl.reconfigure();
     let int: EpdTouchInt = pins.epd_touch_int.reconfigure();
+    // Actually unmasking this interrupt is done by calling set_touch_enabled(true)
+    int.set_interrupt_enabled(EdgeLow, true);
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut alarm = timer.alarm_0().unwrap();
@@ -185,8 +251,6 @@ fn main() -> ! {
     core1.spawn(CORE1_STACK.take().unwrap(), move || {
         info!("core1 init");
 
-        int.set_interrupt_enabled(EdgeLow, true);
-
         let i2c = hal::i2c::I2C::i2c0(pac.I2C0, i2c_sda, i2c_scl, 400.kHz(), &mut pac.RESETS, clocks.system_clock.get_freq());
 
         critical_section::with(|cs| {
@@ -194,10 +258,7 @@ fn main() -> ! {
             GLOBAL_I2C.borrow_ref_mut(cs).replace(i2c);
         });
 
-        unsafe {
-            pac::NVIC::unmask(interrupt::IO_IRQ_BANK0);
-            pac::NVIC::unmask(interrupt::USBCTRL_IRQ);
-        }
+        unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
 
         let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
         epd.hard_reset().unwrap();
@@ -223,26 +284,12 @@ fn main() -> ! {
         }
     }).unwrap();
 
+    unsafe { set_touch_enabled(false) };
 
-    let mut draw_target = EpdDrawTarget::new(ProgramFunctionTable {
-        write_image,
-        refresh,
-        refresh_fast,
-    });
 
-    Text::new("Hello, World!", Point::new(20, 20), MonoTextStyle::new(&FONT_10X20, BinaryColor::On))
-        .draw(&mut draw_target)
-        .unwrap();
-    draw_target.refresh();
+    let draw_target = EpdDrawTarget::new(write_image, refresh);
 
-    let programs = Programs::new();
-    for _program in programs {
-        cortex_m::asm::delay(0);
-    }
-
-    loop {
-        cortex_m::asm::wfi();
-    }
+    gui::gui_main(draw_target);
 }
 
 #[interrupt]
@@ -319,14 +366,7 @@ fn USBCTRL_IRQ() {
 
 #[interrupt]
 fn IO_IRQ_BANK0() {
-    static mut FIRST_EVENT: bool = true;
     static mut TOUCH_INT_PIN: Option<EpdTouchInt> = None;
-    static mut PREV_POS: Option<Point> = None;
-    static mut DRAW_TARGET: EpdDrawTarget = EpdDrawTarget::new(ProgramFunctionTable {
-        write_image,
-        refresh,
-        refresh_fast,
-    });
 
     trace!("IO_IRQ_BANK0");
 
@@ -336,51 +376,34 @@ fn IO_IRQ_BANK0() {
 
     let mut i2c = critical_section::with(|cs| GLOBAL_I2C.borrow(cs).take());
 
-    if let Some(i2c) = &mut i2c {
-        let rc = RefCell::new(i2c);
-        let mut i2c = RefCellDevice::new(&rc);
+    if let Some(pin) = TOUCH_INT_PIN {
+        if let Some(i2c) = &mut i2c {
+            let mut buf = [0u8; 9];
+            i2c.write_read(0x38u8, &[0x00], &mut buf).unwrap();
+            let x = (((buf[3] & 0x0f) as u16) << 8) | buf[4] as u16;
+            let y = (((buf[5] & 0x0f) as u16) << 8) | buf[6] as u16;
 
+            let state = match buf[3] >> 6 {
+                0 => TouchEventType::Down,
+                1 => TouchEventType::Up,
+                2 => TouchEventType::Move,
+                _ => panic!("received invalid touch event type {}", buf[3] >> 6),
+            };
 
-        if *FIRST_EVENT == true {
-            *FIRST_EVENT = false;
-        } else if let Some(int) = TOUCH_INT_PIN {
-            if int.interrupt_status(EdgeLow) {
-                let mut buf = [0u8; 9];
-                i2c.write_read(0x38u8, &[0x00], &mut buf).unwrap();
-                let x = (((buf[3] & 0x0f) as i32) << 8) | buf[4] as i32;
-                let y = (((buf[5] & 0x0f) as i32) << 8) | buf[6] as i32;
-                debug!("touch event at ({}, {})", x, y);
-                let pos = Point::new(x, y);
+            let event = TouchEvent {
+                ev_type: state,
+                x,
+                y,
+            };
 
-                let state = buf[3] >> 6;
+            debug!("touch event: {}", event);
 
-                if state == 1 && y > 400 {
-                    DRAW_TARGET.clear(BinaryColor::Off).unwrap();
-                    DRAW_TARGET.refresh();
-                } else if state == 1 && y < 20 {
-                    hal::rom_data::reset_to_usb_boot(0, 0);
-                } else {
-                    if state == 1 || state == 2 {
-                        if let Some(prev) = *PREV_POS {
-                            Line::new(prev, pos)
-                                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 5))
-                                .draw(DRAW_TARGET)
-                                .unwrap();
-                            DRAW_TARGET.refresh_fast();
-                        }
-                    }
-
-                    if state == 0 || state == 2 {
-                        *PREV_POS = Some(Point::new(x, y));
-                    }
-                }
-                int.clear_interrupt(EdgeLow);
+            if !critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).push(event)) {
+                warn!("touch event buffer full");
             }
-        } else {
-            error!("int pin is None");
         }
-    } else {
-        error!("i2c is None");
+
+        pin.clear_interrupt(EdgeLow);
     }
 
     critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
