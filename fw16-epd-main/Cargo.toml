@@ -9,6 +9,7 @@ fw16-epd-program-interface = { path = "../fw16-epd-program-interface", features 
 tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040"] }
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
+rp2040-flash.workspace = true
 embedded-hal.workspace = true
 embedded-hal-bus.workspace = true
 defmt.workspace = true

@@ -10,6 +10,7 @@ members = [
 
 [workspace.dependencies]
 rp2040-hal = "0.11"
+rp2040-flash = { path = "/home/arthomnix/git/rp2040-flash" }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = "1.0"

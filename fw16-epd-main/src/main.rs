@@ -90,6 +90,26 @@ fn main() -> ! {
         &mut watchdog,
     ).unwrap();
 
+    // Read flash unique ID
+    cortex_m::interrupt::disable();
+    let mut id = [0u8; 8];
+    unsafe { rp2040_flash::flash::flash_unique_id(&mut id, true) };
+    let mut id = u64::from_be_bytes(id);
+    info!("Framework 16 EPD firmware version {}, serial no. {:x}", env!("CARGO_PKG_VERSION"), id);
+    let mut serial_no = [0u8; 16];
+    for c  in serial_no.iter_mut().rev() {
+        let nibble = (id & 0x0f) as u8;
+        *c = match nibble {
+            0x0..=0x9 => b'0' + nibble,
+            0xa..=0xf => b'A' + nibble - 0xa,
+            _ => unreachable!(),
+        };
+        id >>= 4;
+    }
+    // Safety: this function never returns, so we should be fine right?
+    let serial_no: &'static str = unsafe { &*&raw const *core::str::from_utf8(&serial_no).unwrap() };
+    unsafe { cortex_m::interrupt::enable() };
+
     let mut sio = Sio::new(pac.SIO);
     let pins = Pins::new(
         pac.IO_BANK0,
@@ -139,6 +159,8 @@ fn main() -> ! {
         GLOBAL_USB_BUS = Some(usb_bus);
     }
 
+    // Safety: These are only accessed within this interrupt handler, or in main() before the
+    // interrupt is enabled.
     #[allow(static_mut_refs)]
     let bus_ref = unsafe { GLOBAL_USB_BUS.as_ref().unwrap() };
 
@@ -147,6 +169,7 @@ fn main() -> ! {
         .strings(&[StringDescriptors::default()
             .manufacturer("arthomnix")
             .product("Touchscreen EPD Input Module for Framework 16")
+            .serial_number(serial_no)
         ])
         .unwrap()
         .device_class(usbd_serial::USB_CLASS_CDC)
@@ -267,6 +290,8 @@ fn USBCTRL_IRQ() {
 
     trace!("USBCTRL_IRQ");
 
+    // Safety: These are only accessed within this interrupt handler, or in main() before the
+    // interrupt is enabled.
     #[allow(static_mut_refs)]
     let usb_dev = unsafe { GLOBAL_USB_DEVICE.as_mut().unwrap() };
     #[allow(static_mut_refs)]
