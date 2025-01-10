@@ -5,3 +5,6 @@ rustflags = [
     "-C", "link-arg=-Tdefmt.x",
 ]
 runner = "probe-rs run --chip RP2040"
+
+[profile.release]
+debug = 2

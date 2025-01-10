@@ -8,14 +8,14 @@ use panic_probe as _;
 #[allow(unused_imports)]
 use defmt_rtt as _;
 
-use core::cell::{RefCell, RefMut};
+use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, error, info, trace};
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder};
+use embedded_graphics::primitives::{Line, PrimitiveStyle};
 use embedded_graphics::text::Text;
 use embedded_hal::digital::{OutputPin, PinState};
 use embedded_hal::i2c::I2c;
@@ -31,9 +31,10 @@ use usbd_serial::SerialPort;
 use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, I2CScl, I2CSda, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
 use fw16_epd_bsp::hal::clocks::ClockSource;
-use fw16_epd_bsp::hal::fugit::RateExtU32;
+use fw16_epd_bsp::hal::fugit::{RateExtU32, ExtU32};
 use fw16_epd_bsp::hal::gpio::Interrupt::EdgeLow;
 use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
+use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use fw16_epd_program_interface::eg::EpdDrawTarget;
@@ -47,7 +48,9 @@ static CORE1_STACK: Stack<8192> = Stack::new();
 static GLOBAL_TOUCH_INT_PIN: Mutex<RefCell<Option<EpdTouchInt>>> = Mutex::new(RefCell::new(None));
 static GLOBAL_I2C: Mutex<RefCell<Option<I2C<I2C0, (I2CSda, I2CScl)>>>> = Mutex::new(RefCell::new(None));
 
-static IMAGE_BUFFER: Mutex<RefCell<[u8; IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; tp370pgh01::IMAGE_BYTES]));
+static GLOBAL_ALARM0: Mutex<RefCell<Option<Alarm0>>> = Mutex::new(RefCell::new(None));
+
+static IMAGE_BUFFER: Mutex<RefCell<[u8; IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; IMAGE_BYTES]));
 static DO_REFRESH: AtomicBool = AtomicBool::new(false);
 static FAST_REFRESH: AtomicBool = AtomicBool::new(false);
 static TEMP: AtomicU8 = AtomicU8::new(20);
@@ -75,7 +78,6 @@ extern "C" fn refresh_fast() {
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
 
     let clocks = hal::clocks::init_clocks_and_plls(
@@ -104,7 +106,7 @@ fn main() -> ! {
     touch_reset.set_low().unwrap();
     cortex_m::asm::delay(120000);
     touch_reset.set_high().unwrap();
-    cortex_m::asm::delay(1200000);
+    cortex_m::asm::delay(12000000);
 
 
     let cs: EpdCs = pins.spi3_epd_cs.reconfigure();
@@ -118,7 +120,12 @@ fn main() -> ! {
     let i2c_scl: I2CScl = pins.i2c_scl.reconfigure();
     let int: EpdTouchInt = pins.epd_touch_int.reconfigure();
 
-    let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    let mut alarm = timer.alarm_0().unwrap();
+    alarm.enable_interrupt();
+    critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
+    unsafe { pac::NVIC::unmask(interrupt::TIMER_IRQ_0); }
+    pac::NVIC::pend(interrupt::TIMER_IRQ_0);
 
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
         pac.USBCTRL_REGS,
@@ -132,6 +139,7 @@ fn main() -> ! {
         GLOBAL_USB_BUS = Some(usb_bus);
     }
 
+    #[allow(static_mut_refs)]
     let bus_ref = unsafe { GLOBAL_USB_BUS.as_ref().unwrap() };
 
     let serial = SerialPort::new(bus_ref);
@@ -152,6 +160,8 @@ fn main() -> ! {
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let core1 = &mut mc.cores()[1];
     core1.spawn(CORE1_STACK.take().unwrap(), move || {
+        info!("core1 init");
+
         int.set_interrupt_enabled(EdgeLow, true);
 
         let i2c = hal::i2c::I2C::i2c0(pac.I2C0, i2c_sda, i2c_scl, 400.kHz(), &mut pac.RESETS, clocks.system_clock.get_freq());
@@ -213,12 +223,53 @@ fn main() -> ! {
 }
 
 #[interrupt]
+fn TIMER_IRQ_0() {
+    static mut ALARM0: Option<Alarm0> = None;
+
+    trace!("TIMER_IRQ_0");
+
+    if ALARM0.is_none() {
+        critical_section::with(|cs| *ALARM0 = GLOBAL_ALARM0.borrow(cs).take());
+    }
+
+    let mut i2c = critical_section::with(|cs| GLOBAL_I2C.borrow(cs).take());
+
+    if let Some(alarm) = ALARM0 {
+        if let Some(i2c) = &mut i2c {
+            let mut mcp9808 = MCP9808::new(i2c);
+
+            let temp = mcp9808.read_temperature().unwrap().get_celsius(ResolutionVal::Deg_0_0625C);
+            let clamped = match temp {
+                ..=0.0 => 0u8,
+                60.0.. => 60u8,
+                t => t as u8,
+            };
+
+            debug!("read temperature {}C (using {}C)", temp, clamped);
+
+            TEMP.store(clamped, Ordering::Relaxed);
+
+            alarm.clear_interrupt();
+            alarm.schedule(1.minutes()).unwrap();
+        } else {
+            // I2C bus was in use, so try again in a short time
+            alarm.clear_interrupt();
+            alarm.schedule(10.millis()).unwrap();
+        }
+    }
+
+    critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
+}
+
+#[interrupt]
 fn USBCTRL_IRQ() {
     static mut INDEX: usize = 0;
 
     trace!("USBCTRL_IRQ");
 
+    #[allow(static_mut_refs)]
     let usb_dev = unsafe { GLOBAL_USB_DEVICE.as_mut().unwrap() };
+    #[allow(static_mut_refs)]
     let serial = unsafe { GLOBAL_USB_SERIAL.as_mut().unwrap() };
 
     if usb_dev.poll(&mut [serial]) {
@@ -245,8 +296,7 @@ fn USBCTRL_IRQ() {
 fn IO_IRQ_BANK0() {
     static mut FIRST_EVENT: bool = true;
     static mut TOUCH_INT_PIN: Option<EpdTouchInt> = None;
-    static mut I2C: Option<I2C<I2C0, (I2CSda, I2CScl)>> = None;
-    static mut PREV_POS: Point = Point::new(0, 0);
+    static mut PREV_POS: Option<Point> = None;
     static mut DRAW_TARGET: EpdDrawTarget = EpdDrawTarget::new(ProgramFunctionTable {
         write_image,
         refresh,
@@ -259,21 +309,12 @@ fn IO_IRQ_BANK0() {
         critical_section::with(|cs| *TOUCH_INT_PIN = GLOBAL_TOUCH_INT_PIN.borrow(cs).take());
     }
 
-    if I2C.is_none() {
-        critical_section::with(|cs| *I2C = GLOBAL_I2C.borrow(cs).take());
-    }
+    let mut i2c = critical_section::with(|cs| GLOBAL_I2C.borrow(cs).take());
 
-    if let Some(i2c) = I2C {
+    if let Some(i2c) = &mut i2c {
         let rc = RefCell::new(i2c);
         let mut i2c = RefCellDevice::new(&rc);
-        let mut mcp9808 = MCP9808::new(RefCellDevice::new(&rc));
 
-        let temp = match mcp9808.read_temperature().unwrap().get_celsius(ResolutionVal::Deg_0_0625C) {
-            ..=0.0 => 0u8,
-            60.0.. => 60u8,
-            t => t as u8,
-        };
-        TEMP.store(temp, Ordering::Relaxed);
 
         if *FIRST_EVENT == true {
             *FIRST_EVENT = false;
@@ -295,15 +336,17 @@ fn IO_IRQ_BANK0() {
                     hal::rom_data::reset_to_usb_boot(0, 0);
                 } else {
                     if state == 1 || state == 2 {
-                        Line::new(PREV_POS.clone(), pos)
-                            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 5))
-                            .draw(DRAW_TARGET)
-                            .unwrap();
-                        DRAW_TARGET.refresh_fast();
+                        if let Some(prev) = *PREV_POS {
+                            Line::new(prev, pos)
+                                .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 5))
+                                .draw(DRAW_TARGET)
+                                .unwrap();
+                            DRAW_TARGET.refresh_fast();
+                        }
                     }
 
                     if state == 0 || state == 2 {
-                        *PREV_POS = Point::new(x, y);
+                        *PREV_POS = Some(Point::new(x, y));
                     }
                 }
                 int.clear_interrupt(EdgeLow);
@@ -314,4 +357,6 @@ fn IO_IRQ_BANK0() {
     } else {
         error!("i2c is None");
     }
+
+    critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
 }
