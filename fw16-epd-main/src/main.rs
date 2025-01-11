@@ -188,12 +188,11 @@ fn main() -> ! {
     let _power = pins.epd_pwr_sw.into_push_pull_output_in_state(PinState::Low);
 
     let mut touch_reset = pins.epd_touch_rst.into_push_pull_output_in_state(PinState::High);
-    cortex_m::asm::delay(120000);
+    cortex_m::asm::delay(1000000);
     touch_reset.set_low().unwrap();
-    cortex_m::asm::delay(120000);
+    cortex_m::asm::delay(1000000);
     touch_reset.set_high().unwrap();
-    cortex_m::asm::delay(12000000);
-
+    cortex_m::asm::delay(10000000);
 
     let cs: EpdCs = pins.spi3_epd_cs.reconfigure();
     let dc: EpdDc = pins.epd_dc.reconfigure();
