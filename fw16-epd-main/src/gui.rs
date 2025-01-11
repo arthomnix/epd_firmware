@@ -6,7 +6,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use heapless::String;
-use fw16_epd_program_interface::eg::EpdDrawTarget;
+use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_program_interface::TouchEvent;
 use crate::{next_touch_event, set_touch_enabled};
 

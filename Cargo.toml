@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "fw16-epd-bsp",
+    "fw16-epd-bsp", "fw16-epd-gui",
     "fw16-epd-main", "fw16-epd-program-interface",
     "pervasive-spi",
     "tp370pgh01",

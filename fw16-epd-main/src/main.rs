@@ -31,7 +31,7 @@ use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
-use fw16_epd_program_interface::eg::EpdDrawTarget;
+use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};

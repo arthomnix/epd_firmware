@@ -1,8 +1,5 @@
 #![no_std]
 
-#[cfg(feature = "embedded-graphics")]
-pub mod eg;
-
 use core::fmt::{Display, Formatter};
 pub use tp370pgh01::IMAGE_BYTES;
 
