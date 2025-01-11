@@ -61,6 +61,11 @@ impl TouchEvent {
             y: u16::MAX,
         }
     }
+
+    #[cfg(feature = "embedded-graphics")]
+    pub fn eg_point(&self) -> embedded_graphics::prelude::Point {
+        embedded_graphics::prelude::Point::new(self.x as i32, self.y as i32)
+    }
 }
 
 impl Display for TouchEvent {

@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 tp370pgh01 = { path = "../tp370pgh01" }
 defmt.workspace = true
+embedded-graphics = { workspace = true, optional = true }
