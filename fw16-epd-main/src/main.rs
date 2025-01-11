@@ -59,12 +59,14 @@ extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
     critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
 }
 
-extern "C" fn refresh(fast_refresh: bool) {
+extern "C" fn refresh(fast_refresh: bool, block_ack: bool) {
     DO_REFRESH.store(true, Ordering::Relaxed);
     FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
     cortex_m::asm::sev();
-    // Wait until the refresh has been initiated
-    while DO_REFRESH.load(Ordering::Relaxed) {}
+
+    if block_ack {
+        while DO_REFRESH.load(Ordering::Relaxed) {}
+    }
 }
 
 extern "C" fn next_touch_event() -> SafeOption<TouchEvent> {

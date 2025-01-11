@@ -5,11 +5,10 @@ use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::Rectangle;
 use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
-use crate::ProgramFunctionTable;
 
 pub struct EpdDrawTarget {
     write_image: extern "C" fn(&[u8; IMAGE_BYTES]),
-    refresh: extern "C" fn(bool),
+    refresh: extern "C" fn(bool, bool),
     buf: [u8; IMAGE_BYTES],
 }
 
@@ -56,7 +55,7 @@ impl DrawTarget for EpdDrawTarget {
 }
 
 impl EpdDrawTarget {
-    pub const fn new(write_image: extern "C" fn(&[u8; IMAGE_BYTES]), refresh: extern "C" fn(bool)) -> Self {
+    pub const fn new(write_image: extern "C" fn(&[u8; IMAGE_BYTES]), refresh: extern "C" fn(bool, bool)) -> Self {
         Self {
             write_image,
             refresh,
@@ -64,8 +63,8 @@ impl EpdDrawTarget {
         }
     }
 
-    pub fn refresh(&self, fast_refresh: bool) {
+    pub fn refresh(&self, fast_refresh: bool, block_ack: bool) {
         (self.write_image)(&self.buf);
-        (self.refresh)(fast_refresh);
+        (self.refresh)(fast_refresh, block_ack);
     }
 }

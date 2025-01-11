@@ -7,11 +7,11 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use heapless::String;
 use fw16_epd_program_interface::eg::EpdDrawTarget;
-use fw16_epd_program_interface::{TouchEvent, TouchEventType};
+use fw16_epd_program_interface::TouchEvent;
 use crate::{next_touch_event, set_touch_enabled};
 
 pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
-    draw_target.refresh(false);
+    draw_target.refresh(false, true);
 
     unsafe { set_touch_enabled(true) };
 
@@ -32,7 +32,7 @@ pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
                 .draw(&mut draw_target)
                 .unwrap();
             debug!("triggering refresh");
-            draw_target.refresh(true);
+            draw_target.refresh(true, false);
         }
     }
 }

@@ -35,7 +35,7 @@ impl<T> From<SafeOption<T>> for Option<T> {
 #[derive(Copy, Clone)]
 pub struct ProgramFunctionTable {
     pub write_image: extern "C" fn(&[u8; IMAGE_BYTES]),
-    pub refresh: extern "C" fn(bool),
+    pub refresh: extern "C" fn(bool, bool),
     pub next_touch_event: extern "C" fn() -> SafeOption<TouchEvent>,
     pub set_touch_enabled: unsafe extern "C" fn(bool),
 }
