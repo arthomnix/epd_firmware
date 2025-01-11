@@ -1,0 +1,10 @@
+[package]
+name = "fw16-epd-gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fw16-epd-program-interface = { path = "../fw16-epd-program-interface", features = ["embedded-graphics"] }
+tp370pgh01 = { path = "../tp370pgh01" }
+embedded-graphics.workspace = true
+defmt.workspace = true
