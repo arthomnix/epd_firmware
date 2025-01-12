@@ -35,6 +35,7 @@ pub struct ProgramFunctionTable {
     pub refresh: extern "C" fn(bool, bool),
     pub next_touch_event: extern "C" fn() -> SafeOption<TouchEvent>,
     pub set_touch_enabled: unsafe extern "C" fn(bool),
+    pub serial_number: extern "C" fn() -> &'static [u8; 16]
 }
 
 #[repr(u8)]

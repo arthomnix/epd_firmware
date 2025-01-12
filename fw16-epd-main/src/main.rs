@@ -9,7 +9,7 @@ use panic_probe as _;
 #[allow(unused_imports)]
 use defmt_rtt as _;
 
-use core::cell::RefCell;
+use core::cell::{RefCell, UnsafeCell};
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
@@ -18,7 +18,7 @@ use mcp9808::MCP9808;
 use mcp9808::reg_conf::{Configuration, ShutdownMode};
 use mcp9808::reg_res::ResolutionVal;
 use mcp9808::reg_temp_generic::ReadableTempRegister;
-use portable_atomic::{AtomicBool, AtomicU8};
+use portable_atomic::{AtomicBool, AtomicU128, AtomicU8};
 use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
@@ -30,7 +30,7 @@ use fw16_epd_bsp::hal::fugit::{RateExtU32, ExtU32};
 use fw16_epd_bsp::hal::gpio::Interrupt::{EdgeHigh, EdgeLow};
 use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
-use fw16_epd_bsp::pac::{CorePeripherals, I2C0};
+use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
@@ -59,6 +59,8 @@ static mut GLOBAL_USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
+static mut SERIAL_NUMBER: [u8; 16] = [b'X'; 16];
+
 static TOUCH_EVENT_BUFFER: Mutex<RefCell<TouchEventBuffer>> = Mutex::new(RefCell::new(TouchEventBuffer::new()));
 static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -85,6 +87,14 @@ unsafe extern "C" fn set_touch_enabled(enable: bool) {
     if !enable {
         critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).clear());
     }
+}
+
+// Safety: The only time a mutable reference to SERIAL_NUMBER is created is right
+// at the start of the program when the serial number is read from the flash. This
+// function must never be called before then.
+#[allow(static_mut_refs)]
+extern "C" fn serial_number() -> &'static [u8; 16] {
+    unsafe { &SERIAL_NUMBER }
 }
 
 struct TouchEventBuffer<const SIZE: usize = 32> {
@@ -167,21 +177,23 @@ fn main() -> ! {
     let mut id = [0u8; 8];
     unsafe { rp2040_flash::flash::flash_unique_id(&mut id, true) };
     let mut id = u64::from_be_bytes(id);
-    let mut serial_no = [0u8; 16];
-    for c  in serial_no.iter_mut().rev() {
-        let nibble = (id & 0x0f) as u8;
-        *c = match nibble {
-            0x0..=0x9 => b'0' + nibble,
-            0xa..=0xf => b'A' + nibble - 0xa,
-            _ => unreachable!(),
-        };
-        id >>= 4;
+    unsafe {
+        // Safety: This is the only place we modify SERIAL_NUMBER, and this is before any
+        // shared references are created
+        #[allow(static_mut_refs)]
+        for c in SERIAL_NUMBER.iter_mut().rev() {
+            let nibble = (id & 0x0f) as u8;
+            *c = match nibble {
+                0x0..=0x9 => b'0' + nibble,
+                0xa..=0xf => b'A' + nibble - 0xa,
+                _ => unreachable!(),
+            };
+            id >>= 4;
+        }
     }
-    // Safety: this function never returns, so we should be fine right?
-    let serial_no: &'static str = unsafe { &*&raw const *core::str::from_utf8(&serial_no).unwrap() };
     unsafe { cortex_m::interrupt::enable() };
 
-    info!("Framework 16 EPD firmware version {}, serial no. {}", env!("CARGO_PKG_VERSION"), serial_no);
+    info!("Framework 16 EPD firmware version {}, serial no. {}", env!("CARGO_PKG_VERSION"), unsafe { core::str::from_utf8_unchecked(serial_number()) });
 
     let mut sio = Sio::new(pac.SIO);
     let pins = Pins::new(
@@ -256,7 +268,7 @@ fn main() -> ! {
         .strings(&[StringDescriptors::default()
             .manufacturer("arthomnix")
             .product("Touchscreen EPD Input Module for Framework 16")
-            .serial_number(serial_no)
+            .serial_number(unsafe { core::str::from_utf8_unchecked(serial_number()) })
         ])
         .unwrap()
         .device_class(usbd_serial::USB_CLASS_CDC)
