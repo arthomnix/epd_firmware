@@ -38,6 +38,12 @@ pub struct ProgramFunctionTable {
     pub serial_number: extern "C" fn() -> &'static [u8; 16]
 }
 
+impl ProgramFunctionTable {
+    pub fn serial_number_str(&self) -> &'static str {
+        unsafe { core::str::from_utf8_unchecked((self.serial_number)()) }
+    }
+}
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, defmt::Format)]
 pub enum TouchEventType {
