@@ -21,7 +21,12 @@ hal::bsp_pins! {
         }
     },
 
-    Gpio3 { name: epd_touch_rst },
+    Gpio3 {
+        name: epd_touch_rst,
+        aliases: {
+            FunctionSioOutput, PullNone: EpdTouchReset
+        }
+    },
 
     Gpio4 {
         name: i2c_sda,
@@ -37,7 +42,12 @@ hal::bsp_pins! {
         }
     }
 
-    Gpio6 { name: epd_pwr_sw },
+    Gpio6 {
+        name: epd_pwr_sw,
+        aliases: {
+            FunctionSioOutput, PullNone: EpdPowerSwitch
+        }
+    },
 
     Gpio8 {
         name: epd_busy,
@@ -83,7 +93,12 @@ hal::bsp_pins! {
         }
     }
 
-    Gpio25 { name: laptop_sleep },
+    Gpio25 {
+        name: laptop_sleep,
+        aliases: {
+            FunctionSioInput, PullUp: LaptopSleep
+        }
+    },
 }
 
 pub const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;

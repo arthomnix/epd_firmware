@@ -14,7 +14,6 @@ rp2040-flash = { path = "/home/arthomnix/git/rp2040-flash" }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 embedded-hal = "1.0"
-embedded-hal-bus = "0.2"
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }

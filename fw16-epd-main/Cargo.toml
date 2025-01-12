@@ -12,7 +12,6 @@ cortex-m.workspace = true
 cortex-m-rt.workspace = true
 rp2040-flash.workspace = true
 embedded-hal.workspace = true
-embedded-hal-bus.workspace = true
 defmt.workspace = true
 defmt-rtt.workspace = true
 panic-probe.workspace = true

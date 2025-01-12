@@ -12,9 +12,10 @@ use defmt_rtt as _;
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
-use embedded_hal::digital::{OutputPin, PinState};
+use embedded_hal::digital::{InputPin, OutputPin, PinState};
 use embedded_hal::i2c::I2c;
 use mcp9808::MCP9808;
+use mcp9808::reg_conf::{Configuration, ShutdownMode};
 use mcp9808::reg_res::ResolutionVal;
 use mcp9808::reg_temp_generic::ReadableTempRegister;
 use portable_atomic::{AtomicBool, AtomicU8};
@@ -22,14 +23,14 @@ use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
-use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, I2CScl, I2CSda, Pins};
+use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdPowerSwitch, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, EpdTouchReset, I2CScl, I2CSda, LaptopSleep, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
 use fw16_epd_bsp::hal::clocks::ClockSource;
 use fw16_epd_bsp::hal::fugit::{RateExtU32, ExtU32};
-use fw16_epd_bsp::hal::gpio::Interrupt::EdgeLow;
+use fw16_epd_bsp::hal::gpio::Interrupt::{EdgeHigh, EdgeLow};
 use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
-use fw16_epd_bsp::pac::I2C0;
+use fw16_epd_bsp::pac::{CorePeripherals, I2C0};
 use fw16_epd_bsp::pac::interrupt;
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
@@ -41,12 +42,17 @@ static CORE1_STACK: Stack<8192> = Stack::new();
 
 static GLOBAL_TOUCH_INT_PIN: Mutex<RefCell<Option<EpdTouchInt>>> = Mutex::new(RefCell::new(None));
 static GLOBAL_I2C: Mutex<RefCell<Option<I2C<I2C0, (I2CSda, I2CScl)>>>> = Mutex::new(RefCell::new(None));
+static GLOBAL_SLEEP_PIN: Mutex<RefCell<Option<LaptopSleep>>> = Mutex::new(RefCell::new(None));
+static GLOBAL_EPD_POWER_PIN: Mutex<RefCell<Option<EpdPowerSwitch>>> = Mutex::new(RefCell::new(None));
+static GLOBAL_TOUCH_RESET_PIN: Mutex<RefCell<Option<EpdTouchReset>>> = Mutex::new(RefCell::new(None));
 
 static GLOBAL_ALARM0: Mutex<RefCell<Option<Alarm0>>> = Mutex::new(RefCell::new(None));
 
 static IMAGE_BUFFER: Mutex<RefCell<[u8; IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; IMAGE_BYTES]));
 static DO_REFRESH: AtomicBool = AtomicBool::new(false);
 static FAST_REFRESH: AtomicBool = AtomicBool::new(false);
+static REFRESHING: AtomicBool = AtomicBool::new(false);
+static EPD_NEEDS_HARD_RESET: AtomicBool = AtomicBool::new(true);
 static TEMP: AtomicU8 = AtomicU8::new(20);
 
 static mut GLOBAL_USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
@@ -54,6 +60,7 @@ static mut GLOBAL_USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
 static TOUCH_EVENT_BUFFER: Mutex<RefCell<TouchEventBuffer>> = Mutex::new(RefCell::new(TouchEventBuffer::new()));
+static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
     critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
@@ -74,11 +81,8 @@ extern "C" fn next_touch_event() -> SafeOption<TouchEvent> {
 }
 
 unsafe extern "C" fn set_touch_enabled(enable: bool) {
-    if enable {
-        pac::NVIC::unpend(interrupt::IO_IRQ_BANK0);
-        pac::NVIC::unmask(interrupt::IO_IRQ_BANK0);
-    } else {
-        pac::NVIC::mask(interrupt::IO_IRQ_BANK0);
+    TOUCH_ENABLED.store(enable, Ordering::Relaxed);
+    if !enable {
         critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).clear());
     }
 }
@@ -143,6 +147,7 @@ impl<const SIZE: usize> TouchEventBuffer<SIZE> {
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
+    let mut core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
 
     let clocks = hal::clocks::init_clocks_and_plls(
@@ -154,6 +159,8 @@ fn main() -> ! {
         &mut pac.RESETS,
         &mut watchdog,
     ).unwrap();
+
+    core.SCB.set_sleepdeep();
 
     // Read flash unique ID
     cortex_m::interrupt::disable();
@@ -185,14 +192,25 @@ fn main() -> ! {
     );
 
 
-    let _power = pins.epd_pwr_sw.into_push_pull_output_in_state(PinState::Low);
+    let mut epd_power: EpdPowerSwitch = pins.epd_pwr_sw.reconfigure();
+    epd_power.set_low().unwrap();
+    critical_section::with(|cs| GLOBAL_EPD_POWER_PIN.borrow_ref_mut(cs).replace(epd_power));
 
-    let mut touch_reset = pins.epd_touch_rst.into_push_pull_output_in_state(PinState::High);
+    let mut sleep = pins.laptop_sleep.into_pull_up_input();
+    sleep.set_interrupt_enabled(EdgeLow, true);
+    sleep.set_interrupt_enabled(EdgeHigh, true);
+    sleep.clear_interrupt(EdgeLow);
+    sleep.clear_interrupt(EdgeHigh);
+    critical_section::with(|cs| GLOBAL_SLEEP_PIN.borrow_ref_mut(cs).replace(sleep));
+
+    let mut touch_reset: EpdTouchReset = pins.epd_touch_rst.reconfigure();
+    touch_reset.set_high().unwrap();
     cortex_m::asm::delay(1000000);
     touch_reset.set_low().unwrap();
     cortex_m::asm::delay(1000000);
     touch_reset.set_high().unwrap();
     cortex_m::asm::delay(10000000);
+    critical_section::with(|cs| GLOBAL_TOUCH_RESET_PIN.borrow_ref_mut(cs).replace(touch_reset));
 
     let cs: EpdCs = pins.spi3_epd_cs.reconfigure();
     let dc: EpdDc = pins.epd_dc.reconfigure();
@@ -204,14 +222,16 @@ fn main() -> ! {
     let i2c_sda: I2CSda = pins.i2c_sda.reconfigure();
     let i2c_scl: I2CScl = pins.i2c_scl.reconfigure();
     let int: EpdTouchInt = pins.epd_touch_int.reconfigure();
-    // Actually unmasking this interrupt is done by calling set_touch_enabled(true)
     int.set_interrupt_enabled(EdgeLow, true);
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
-    unsafe { pac::NVIC::unmask(interrupt::TIMER_IRQ_0); }
+    unsafe {
+        core.NVIC.set_priority(interrupt::TIMER_IRQ_0, 0b10000000);
+        pac::NVIC::unmask(interrupt::TIMER_IRQ_0);
+    }
     pac::NVIC::pend(interrupt::TIMER_IRQ_0);
 
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
@@ -262,13 +282,18 @@ fn main() -> ! {
         unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
 
         let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
-        epd.hard_reset().unwrap();
 
         let mut prev_image = [0u8; IMAGE_BYTES];
         let mut image = [0u8; IMAGE_BYTES];
 
         loop {
             cortex_m::asm::wfe();
+
+            if EPD_NEEDS_HARD_RESET.swap(false, Ordering::Relaxed) {
+                epd.hard_reset().unwrap();
+            }
+
+            REFRESHING.store(true, Ordering::Relaxed);
 
             if DO_REFRESH.swap(false, Ordering::Relaxed) {
                 if FAST_REFRESH.load(Ordering::Relaxed) {
@@ -282,14 +307,19 @@ fn main() -> ! {
                     epd.refresh(&image, TEMP.load(Ordering::Relaxed)).unwrap();
                 }
             }
+
+            REFRESHING.store(false, Ordering::Relaxed);
         }
     }).unwrap();
 
-    unsafe { set_touch_enabled(false) };
-
+    unsafe {
+        core.NVIC.set_priority(interrupt::IO_IRQ_BANK0, 0);
+        core.NVIC.set_priority(interrupt::SW0_IRQ, 0b01000000);
+        pac::NVIC::unmask(interrupt::IO_IRQ_BANK0);
+        pac::NVIC::unmask(interrupt::SW0_IRQ);
+    };
 
     let draw_target = EpdDrawTarget::new(write_image, refresh);
-
     gui::gui_main(draw_target);
 }
 
@@ -368,6 +398,9 @@ fn USBCTRL_IRQ() {
 #[interrupt]
 fn IO_IRQ_BANK0() {
     static mut TOUCH_INT_PIN: Option<EpdTouchInt> = None;
+    static mut SLEEP_PIN: Option<LaptopSleep> = None;
+    static mut EPD_POWER_PIN: Option<EpdPowerSwitch> = None;
+    static mut TOUCH_RESET_PIN: Option<EpdTouchReset> = None;
 
     trace!("IO_IRQ_BANK0");
 
@@ -375,37 +408,125 @@ fn IO_IRQ_BANK0() {
         critical_section::with(|cs| *TOUCH_INT_PIN = GLOBAL_TOUCH_INT_PIN.borrow(cs).take());
     }
 
+    if SLEEP_PIN.is_none() {
+        critical_section::with(|cs| *SLEEP_PIN = GLOBAL_SLEEP_PIN.borrow(cs).take());
+    }
+
+    if EPD_POWER_PIN.is_none() {
+        critical_section::with(|cs| *EPD_POWER_PIN = GLOBAL_EPD_POWER_PIN.borrow(cs).take());
+    }
+
+    if TOUCH_RESET_PIN.is_none() {
+        critical_section::with(|cs| *TOUCH_RESET_PIN = GLOBAL_TOUCH_RESET_PIN.borrow(cs).take());
+    }
+
     let mut i2c = critical_section::with(|cs| GLOBAL_I2C.borrow(cs).take());
 
     if let Some(pin) = TOUCH_INT_PIN {
-        if let Some(i2c) = &mut i2c {
-            let mut buf = [0u8; 9];
-            i2c.write_read(0x38u8, &[0x00], &mut buf).unwrap();
-            let x = (((buf[3] & 0x0f) as u16) << 8) | buf[4] as u16;
-            let y = (((buf[5] & 0x0f) as u16) << 8) | buf[6] as u16;
+        if pin.interrupt_status(EdgeLow) {
 
-            let state = match buf[3] >> 6 {
-                0 => TouchEventType::Down,
-                1 => TouchEventType::Up,
-                2 => TouchEventType::Move,
-                _ => panic!("received invalid touch event type {}", buf[3] >> 6),
-            };
+            if TOUCH_ENABLED.load(Ordering::Relaxed) {
+                if let Some(i2c) = &mut i2c {
+                    let mut buf = [0u8; 9];
+                    i2c.write_read(0x38u8, &[0x00], &mut buf).unwrap();
+                    let x = (((buf[3] & 0x0f) as u16) << 8) | buf[4] as u16;
+                    let y = (((buf[5] & 0x0f) as u16) << 8) | buf[6] as u16;
 
-            let event = TouchEvent {
-                ev_type: state,
-                x,
-                y,
-            };
+                    let state = match buf[3] >> 6 {
+                        0 => TouchEventType::Down,
+                        1 => TouchEventType::Up,
+                        2 => TouchEventType::Move,
+                        _ => panic!("received invalid touch event type {}", buf[3] >> 6),
+                    };
 
-            debug!("touch event: {}", event);
+                    let event = TouchEvent {
+                        ev_type: state,
+                        x,
+                        y,
+                    };
 
-            if !critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).push(event)) {
-                warn!("touch event buffer full");
+                    debug!("touch event: {}", event);
+
+                    if !critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).push(event)) {
+                        warn!("touch event buffer full");
+                    }
+                }
             }
-        }
 
+        }
         pin.clear_interrupt(EdgeLow);
     }
 
+    if let Some(pin) = SLEEP_PIN {
+        if pin.interrupt_status(EdgeLow) {
+            debug!("sleeping");
+            pin.clear_interrupt(EdgeLow);
+
+            if let Some(touch_int) = TOUCH_INT_PIN {
+                touch_int.set_interrupt_enabled(EdgeLow, false);
+            }
+
+            // Wait until refresh has finished
+            while REFRESHING.load(Ordering::Relaxed) {}
+
+            // Power down temp sensor
+            if let Some(i2c) = &mut i2c {
+                let mut mcp9808 = MCP9808::new(i2c);
+                let mut config = mcp9808.read_configuration().unwrap();
+                config.set_shutdown_mode(ShutdownMode::Shutdown);
+                mcp9808.write_register(config).unwrap();
+            }
+
+            // Power down display
+            if let Some(power_pin) = EPD_POWER_PIN {
+                power_pin.set_high().unwrap();
+            }
+
+            pac::NVIC::pend(interrupt::SW0_IRQ);
+        }
+
+        if pin.interrupt_status(EdgeHigh) {
+            pin.clear_interrupt(EdgeHigh);
+
+            // Power up temp sensor
+            if let Some(i2c) = &mut i2c {
+                let mut mcp9808 = MCP9808::new(i2c);
+                let mut config = mcp9808.read_configuration().unwrap();
+                config.set_shutdown_mode(ShutdownMode::Continuous);
+                mcp9808.write_register(config).unwrap();
+            }
+
+            // Power up EPD
+            if let Some(power_pin) = EPD_POWER_PIN {
+                power_pin.set_low().unwrap();
+            }
+
+            EPD_NEEDS_HARD_RESET.store(true, Ordering::Relaxed);
+
+            if let Some(reset) = TOUCH_RESET_PIN {
+                cortex_m::asm::delay(1000000);
+                reset.set_high().unwrap();
+                cortex_m::asm::delay(1000000);
+                reset.set_low().unwrap();
+                cortex_m::asm::delay(1000000);
+                reset.set_high().unwrap();
+                cortex_m::asm::delay(10000000);
+            }
+
+            if let Some(touch_int) = TOUCH_INT_PIN {
+                touch_int.clear_interrupt(EdgeLow);
+                touch_int.set_interrupt_enabled(EdgeLow, true);
+            }
+
+            debug!("woken up");
+        }
+    }
+
     critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
+}
+
+#[interrupt]
+fn SW0_IRQ() {
+    trace!("SW0_IRQ");
+    cortex_m::asm::wfi();
 }

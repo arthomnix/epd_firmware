@@ -1,4 +1,5 @@
 use core::fmt::Write;
+use defmt::debug;
 use embedded_graphics::mono_font::ascii::FONT_10X20;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -12,6 +13,8 @@ use fw16_epd_gui::element::GuiElement;
 use crate::{next_touch_event, set_touch_enabled};
 
 pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
+    debug!("gui_main");
+
     draw_target.refresh(false, true);
 
     unsafe { set_touch_enabled(true) };
