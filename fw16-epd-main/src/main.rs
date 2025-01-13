@@ -18,6 +18,7 @@ use mcp9808::MCP9808;
 use mcp9808::reg_conf::{Configuration, ShutdownMode};
 use mcp9808::reg_res::ResolutionVal;
 use mcp9808::reg_temp_generic::ReadableTempRegister;
+use once_cell::sync::OnceCell;
 use portable_atomic::{AtomicBool, AtomicU128, AtomicU8};
 use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
@@ -59,7 +60,7 @@ static mut GLOBAL_USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
-static mut SERIAL_NUMBER: [u8; 16] = [b'X'; 16];
+static SERIAL_NUMBER: OnceCell<[u8; 16]> = OnceCell::new();
 
 static TOUCH_EVENT_BUFFER: Mutex<RefCell<TouchEventBuffer>> = Mutex::new(RefCell::new(TouchEventBuffer::new()));
 static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -89,12 +90,8 @@ unsafe extern "C" fn set_touch_enabled(enable: bool) {
     }
 }
 
-// Safety: The only time a mutable reference to SERIAL_NUMBER is created is right
-// at the start of the program when the serial number is read from the flash. This
-// function must never be called before then.
-#[allow(static_mut_refs)]
 extern "C" fn serial_number() -> &'static [u8; 16] {
-    unsafe { &SERIAL_NUMBER }
+    SERIAL_NUMBER.get().unwrap()
 }
 
 struct TouchEventBuffer<const SIZE: usize = 32> {
@@ -177,20 +174,17 @@ fn main() -> ! {
     let mut id = [0u8; 8];
     unsafe { rp2040_flash::flash::flash_unique_id(&mut id, true) };
     let mut id = u64::from_be_bytes(id);
-    unsafe {
-        // Safety: This is the only place we modify SERIAL_NUMBER, and this is before any
-        // shared references are created
-        #[allow(static_mut_refs)]
-        for c in SERIAL_NUMBER.iter_mut().rev() {
-            let nibble = (id & 0x0f) as u8;
-            *c = match nibble {
-                0x0..=0x9 => b'0' + nibble,
-                0xa..=0xf => b'A' + nibble - 0xa,
-                _ => unreachable!(),
-            };
-            id >>= 4;
-        }
+    let mut serial = [0u8; 16];
+    for c in serial.iter_mut().rev() {
+        let nibble = (id & 0x0f) as u8;
+        *c = match nibble {
+            0x0..=0x9 => b'0' + nibble,
+            0xa..=0xf => b'A' + nibble - 0xa,
+            _ => unreachable!(),
+        };
+        id >>= 4;
     }
+    SERIAL_NUMBER.set(serial).unwrap();
     unsafe { cortex_m::interrupt::enable() };
 
     info!("Framework 16 EPD firmware version {}, serial no. {}", env!("CARGO_PKG_VERSION"), unsafe { core::str::from_utf8_unchecked(serial_number()) });
