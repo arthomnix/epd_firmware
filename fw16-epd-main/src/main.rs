@@ -9,7 +9,7 @@ use panic_probe as _;
 #[allow(unused_imports)]
 use defmt_rtt as _;
 
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
@@ -34,7 +34,7 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use fw16_epd_gui::draw_target::EpdDrawTarget;
-use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
+use fw16_epd_program_interface::{Event, RefreshBlockMode, SafeOption, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
 //use crate::programs::Programs;
@@ -62,31 +62,35 @@ static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
 static SERIAL_NUMBER: OnceCell<[u8; 16]> = OnceCell::new();
 
-static TOUCH_EVENT_BUFFER: Mutex<RefCell<TouchEventBuffer>> = Mutex::new(RefCell::new(TouchEventBuffer::new()));
+static EVENT_QUEUE: Mutex<RefCell<EventQueue>> = Mutex::new(RefCell::new(EventQueue::new()));
 static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
     critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
 }
 
-extern "C" fn refresh(fast_refresh: bool, block_ack: bool) {
+extern "C" fn refresh(fast_refresh: bool, block_mode: RefreshBlockMode) {
     DO_REFRESH.store(true, Ordering::Relaxed);
     FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
     cortex_m::asm::sev();
 
-    if block_ack {
+    if matches!(block_mode, RefreshBlockMode::BlockAcknowledge | RefreshBlockMode::BlockFinish) {
         while DO_REFRESH.load(Ordering::Relaxed) {}
+    }
+
+    if matches!(block_mode, RefreshBlockMode::BlockFinish) {
+        while REFRESHING.load(Ordering::Relaxed) {}
     }
 }
 
-extern "C" fn next_touch_event() -> SafeOption<TouchEvent> {
-    critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).pop()).into()
+extern "C" fn next_event() -> SafeOption<Event> {
+    critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).pop()).into()
 }
 
 unsafe extern "C" fn set_touch_enabled(enable: bool) {
     TOUCH_ENABLED.store(enable, Ordering::Relaxed);
     if !enable {
-        critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).clear());
+        critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).clear());
     }
 }
 
@@ -94,16 +98,16 @@ extern "C" fn serial_number() -> &'static [u8; 16] {
     SERIAL_NUMBER.get().unwrap()
 }
 
-struct TouchEventBuffer<const SIZE: usize = 32> {
-    inner: [TouchEvent; SIZE],
+struct EventQueue<const SIZE: usize = 32> {
+    inner: [Event; SIZE],
     read_index: usize,
     write_index: usize,
 }
 
-impl<const SIZE: usize> TouchEventBuffer<SIZE> {
+impl<const SIZE: usize> EventQueue<SIZE> {
     const fn new() -> Self {
         Self {
-            inner: [TouchEvent::new(); SIZE],
+            inner: [Event::Null; SIZE],
             read_index: 0,
             write_index: 0,
         }
@@ -125,7 +129,7 @@ impl<const SIZE: usize> TouchEventBuffer<SIZE> {
         }
     }
 
-    fn pop(&mut self) -> Option<TouchEvent> {
+    fn pop(&mut self) -> Option<Event> {
         if self.read_index == self.write_index {
             None
         } else {
@@ -135,7 +139,7 @@ impl<const SIZE: usize> TouchEventBuffer<SIZE> {
         }
     }
 
-    fn push(&mut self, item: TouchEvent) -> bool {
+    fn push(&mut self, item: Event) -> bool {
         if self.write_index == Self::wrapping_dec(self.read_index) {
             false
         } else {
@@ -314,6 +318,7 @@ fn main() -> ! {
                 }
             }
 
+            critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).push(Event::RefreshFinished));
             REFRESHING.store(false, Ordering::Relaxed);
         }
     }).unwrap();
@@ -453,7 +458,7 @@ fn IO_IRQ_BANK0() {
 
                     debug!("touch event: {}", event);
 
-                    if !critical_section::with(|cs| TOUCH_EVENT_BUFFER.borrow_ref_mut(cs).push(event)) {
+                    if !critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).push(Event::Touch(event))) {
                         warn!("touch event buffer full");
                     }
                 }
@@ -484,6 +489,7 @@ fn IO_IRQ_BANK0() {
             }
 
             // Power down display
+            // (pin is connected to P-ch MOSFET so high = off)
             if let Some(power_pin) = EPD_POWER_PIN {
                 power_pin.set_high().unwrap();
             }

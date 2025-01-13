@@ -4,11 +4,12 @@ use embedded_graphics::geometry::Dimensions;
 use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::Rectangle;
+use fw16_epd_program_interface::RefreshBlockMode;
 use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
 
 pub struct EpdDrawTarget {
     write_image: extern "C" fn(&[u8; IMAGE_BYTES]),
-    refresh: extern "C" fn(bool, bool),
+    refresh: extern "C" fn(bool, RefreshBlockMode),
     buf: [u8; IMAGE_BYTES],
 }
 
@@ -55,7 +56,7 @@ impl DrawTarget for EpdDrawTarget {
 }
 
 impl EpdDrawTarget {
-    pub const fn new(write_image: extern "C" fn(&[u8; IMAGE_BYTES]), refresh: extern "C" fn(bool, bool)) -> Self {
+    pub const fn new(write_image: extern "C" fn(&[u8; IMAGE_BYTES]), refresh: extern "C" fn(bool, RefreshBlockMode)) -> Self {
         Self {
             write_image,
             refresh,
@@ -63,8 +64,8 @@ impl EpdDrawTarget {
         }
     }
 
-    pub fn refresh(&self, fast_refresh: bool, block_ack: bool) {
+    pub fn refresh(&self, fast_refresh: bool, block_mode: RefreshBlockMode) {
         (self.write_image)(&self.buf);
-        (self.refresh)(fast_refresh, block_ack);
+        (self.refresh)(fast_refresh, block_mode);
     }
 }

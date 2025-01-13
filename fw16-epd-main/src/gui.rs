@@ -2,32 +2,82 @@ use defmt::debug;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::Line;
+use embedded_graphics::primitives::{Line, Rectangle};
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_gui::element::button::Button;
-use fw16_epd_gui::element::{GuiElement, DEFAULT_PRIMITIVE_STYLE};
-use fw16_epd_program_interface::{SafeOption, TouchEvent, TouchEventType};
-use crate::{next_touch_event, set_touch_enabled};
+use fw16_epd_gui::element::{Gui, DEFAULT_PRIMITIVE_STYLE};
+use fw16_epd_program_interface::{RefreshBlockMode, SafeOption, Event, TouchEventType};
+use crate::{next_event, set_touch_enabled};
+
+enum Page {
+    MainPage,
+    ScratchpadPage,
+}
 
 struct MainPage {
     scratchpad_button: Button<'static>,
+    test_buttons: [Button<'static>; 16],
 }
 
 impl MainPage {
     fn new() -> Self {
+        let test_buttons = [
+            Button::with_default_style(Rectangle::new(Point::new(10, 50), Size::new(40, 40)), "0", false),
+            Button::with_default_style(Rectangle::new(Point::new(60, 50), Size::new(40, 40)), "1", false),
+            Button::with_default_style(Rectangle::new(Point::new(110, 50), Size::new(40, 40)), "2", false),
+            Button::with_default_style(Rectangle::new(Point::new(160, 50), Size::new(40, 40)), "3", false),
+            Button::with_default_style(Rectangle::new(Point::new(10, 100), Size::new(40, 40)), "4", false),
+            Button::with_default_style(Rectangle::new(Point::new(60, 100), Size::new(40, 40)), "5", false),
+            Button::with_default_style(Rectangle::new(Point::new(110, 100), Size::new(40, 40)), "6", false),
+            Button::with_default_style(Rectangle::new(Point::new(160, 100), Size::new(40, 40)), "7", false),
+            Button::with_default_style(Rectangle::new(Point::new(10, 150), Size::new(40, 40)), "8", false),
+            Button::with_default_style(Rectangle::new(Point::new(60, 150), Size::new(40, 40)), "9", false),
+            Button::with_default_style(Rectangle::new(Point::new(110, 150), Size::new(40, 40)), "A", false),
+            Button::with_default_style(Rectangle::new(Point::new(160, 150), Size::new(40, 40)), "B", false),
+            Button::with_default_style(Rectangle::new(Point::new(10, 200), Size::new(40, 40)), "C", false),
+            Button::with_default_style(Rectangle::new(Point::new(60, 200), Size::new(40, 40)), "D", false),
+            Button::with_default_style(Rectangle::new(Point::new(110, 200), Size::new(40, 40)), "E", false),
+            Button::with_default_style(Rectangle::new(Point::new(160, 200), Size::new(40, 40)), "F", false),
+        ];
+
+
         Self {
-            scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad"),
+            scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad", true),
+            test_buttons,
         }
     }
 }
 
-impl GuiElement for MainPage {
-    fn draw_element(&self, target: &mut EpdDrawTarget) {
-        self.scratchpad_button.draw_element(target);
+impl Gui for MainPage {
+    type Output = Option<Page>;
+
+    fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
+        self.scratchpad_button.draw_init(draw_target);
+        for button in &self.test_buttons {
+            button.draw_init(draw_target);
+        }
     }
 
-    fn handle_touch(&mut self, ev: TouchEvent) {
-        self.scratchpad_button.handle_touch(ev);
+    fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        let mut needs_refresh = false;
+
+        let s = self.scratchpad_button.tick(draw_target, ev);
+        if s.clicked {
+            return Some(Page::ScratchpadPage);
+        } else if s.needs_refresh {
+            draw_target.refresh(true, RefreshBlockMode::BlockAcknowledge);
+        }
+
+
+        for button in &mut self.test_buttons {
+            needs_refresh |= button.tick(draw_target, ev).needs_refresh;
+        }
+
+        if needs_refresh {
+            draw_target.refresh(true, RefreshBlockMode::NonBlocking);
+        }
+
+        None
     }
 }
 
@@ -39,12 +89,12 @@ struct ScratchpadPage {
 
 impl ScratchpadPage {
     fn new() -> Self {
-        let exit_button = Button::with_default_style_auto_sized(Point::new(10, 416 - 10 - 20), "Exit");
+        let exit_button = Button::with_default_style_auto_sized(Point::new(10, 416 - 10 - 20), "Exit", true);
         let next_pos = exit_button
             .rect()
             .translate(Point::new(10, 0))
             .anchor_point(AnchorPoint::TopRight);
-        let clear_button = Button::with_default_style_auto_sized(next_pos, "Clear");
+        let clear_button = Button::with_default_style_auto_sized(next_pos, "Clear", true);
 
         Self {
             exit_button,
@@ -54,71 +104,109 @@ impl ScratchpadPage {
     }
 }
 
-impl GuiElement for ScratchpadPage {
-    fn draw_element(&self, target: &mut EpdDrawTarget) {
-        self.exit_button.draw_element(target);
-        self.clear_button.draw_element(target);
+impl Gui for ScratchpadPage {
+    type Output = Option<Page>;
+
+    fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
+        self.exit_button.draw_init(draw_target);
+        self.clear_button.draw_init(draw_target);
     }
 
-    fn handle_touch(&mut self, ev: TouchEvent) {
-        self.exit_button.handle_touch(ev);
-        self.clear_button.handle_touch(ev);
-        if matches!(ev.ev_type, TouchEventType::Down | TouchEventType::Move) {
-            self.prev_pos = Some(ev.eg_point());
+    fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        let mut refresh: Option<RefreshBlockMode> = None;
+
+        let e = self.exit_button.tick(draw_target, ev);
+        if e.clicked {
+            return Some(Page::MainPage);
+        }
+        if e.needs_refresh {
+            refresh = Some(RefreshBlockMode::BlockAcknowledge);
+        }
+
+        let c = self.clear_button.tick(draw_target, ev);
+        if c.clicked {
+            draw_target.clear(BinaryColor::Off).unwrap();
+            self.draw_init(draw_target);
+            draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+            return None;
+        }
+        if c.needs_refresh {
+            refresh = Some(RefreshBlockMode::BlockAcknowledge);
+        }
+
+        if let Event::Touch(ev) = ev {
+            if matches!(ev.ev_type, TouchEventType::Move | TouchEventType::Up) {
+                if let Some(prev) = self.prev_pos {
+                    Line::new(prev, ev.eg_point())
+                        .into_styled(DEFAULT_PRIMITIVE_STYLE)
+                        .draw(draw_target)
+                        .unwrap();
+
+                    self.exit_button.draw_init(draw_target);
+                    self.clear_button.draw_init(draw_target);
+
+                    if refresh.is_none() {
+                        refresh = Some(RefreshBlockMode::NonBlocking);
+                    }
+                }
+            }
+
+            if matches!(ev.ev_type, TouchEventType::Down | TouchEventType::Move) {
+                self.prev_pos = Some(ev.eg_point());
+            }
+        }
+
+        if let Some(mode) = refresh {
+            draw_target.refresh(true, mode);
+        }
+
+        None
+    }
+}
+
+struct MainGui {
+    current_page: Page,
+    main_page: MainPage,
+    scratchpad_page: ScratchpadPage,
+}
+
+impl MainGui {
+    fn new() -> Self {
+        Self {
+            current_page: Page::MainPage,
+            main_page: MainPage::new(),
+            scratchpad_page: ScratchpadPage::new(),
+        }
+    }
+
+    fn get_current_page(&self) -> &dyn Gui<Output = Option<Page>> {
+        match self.current_page {
+            Page::MainPage => &self.main_page,
+            Page::ScratchpadPage => &self.scratchpad_page,
+        }
+    }
+
+    fn get_current_page_mut(&mut self) -> &mut dyn Gui<Output = Option<Page>> {
+        match self.current_page {
+            Page::MainPage => &mut self.main_page,
+            Page::ScratchpadPage => &mut self.scratchpad_page,
         }
     }
 }
 
-enum Gui {
-    MainPage(MainPage),
-    ScratchpadPage(ScratchpadPage),
-}
+impl Gui for MainGui {
+    type Output = ();
 
-impl Gui {
-    fn tick(&mut self, target: &mut EpdDrawTarget, ev: TouchEvent) {
-        match self {
-            Gui::MainPage(page) => {
-                page.handle_touch(ev);
+    fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
+        self.get_current_page().draw_init(draw_target);
+    }
 
-                if page.scratchpad_button.clicked(true) {
-                    let scratchpad = ScratchpadPage::new();
-                    target.clear(BinaryColor::Off).unwrap();
-                    scratchpad.draw_element(target);
-                    target.refresh(false, true);
-                    *self = Gui::ScratchpadPage(scratchpad);
-                    return;
-                }
-            }
-
-            Gui::ScratchpadPage(page) => {
-                if matches!(ev.ev_type, TouchEventType::Move | TouchEventType::Up) {
-                    if let Some(prev) = page.prev_pos {
-                        Line::new(prev, ev.eg_point())
-                            .into_styled(DEFAULT_PRIMITIVE_STYLE)
-                            .draw(target)
-                            .unwrap();
-                        page.draw_element(target);
-                        target.refresh(true, false);
-                    }
-                }
-
-                page.handle_touch(ev);
-
-                if page.exit_button.clicked(true) {
-                    let main = MainPage::new();
-                    target.clear(BinaryColor::Off).unwrap();
-                    main.draw_element(target);
-                    target.refresh(false, true);
-                    *self = Gui::MainPage(main);
-                    return;
-                }
-
-                if page.clear_button.clicked(true) {
-                    target.clear(BinaryColor::Off).unwrap();
-                    page.draw_element(target);
-                    target.refresh(false, false);
-                }
-            }
+    fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        if let Some(page) = self.get_current_page_mut().tick(draw_target, ev) {
+            self.current_page = page;
+            draw_target.clear(BinaryColor::Off).unwrap();
+            self.draw_init(draw_target);
+            draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
         }
     }
 }
@@ -127,13 +215,12 @@ pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
     debug!("gui_main");
 
     unsafe { set_touch_enabled(true) };
-    let main = MainPage::new();
-    main.draw_element(&mut draw_target);
-    draw_target.refresh(false, true);
-    let mut gui = Gui::MainPage(main);
+    let mut gui = MainGui::new();
+    gui.draw_init(&mut draw_target);
+    draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
 
     loop {
-        while let SafeOption::Some(ev) = next_touch_event() {
+        while let SafeOption::Some(ev) = next_event() {
             gui.tick(&mut draw_target, ev);
         }
     }
