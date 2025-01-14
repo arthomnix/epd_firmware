@@ -2,10 +2,11 @@ use defmt::debug;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, Rectangle};
+use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_gui::element::button::Button;
 use fw16_epd_gui::element::{Gui, DEFAULT_PRIMITIVE_STYLE};
+use fw16_epd_gui::element::slider::Slider;
 use fw16_epd_program_interface::{RefreshBlockMode, SafeOption, Event, TouchEventType};
 use crate::{next_event, set_touch_enabled};
 
@@ -84,21 +85,36 @@ impl Gui for MainPage {
 struct ScratchpadPage {
     exit_button: Button<'static>,
     clear_button: Button<'static>,
+    toggle_button: Button<'static>,
+    slider: Slider,
+    eraser: bool,
     prev_pos: Option<Point>,
 }
 
 impl ScratchpadPage {
     fn new() -> Self {
         let exit_button = Button::with_default_style_auto_sized(Point::new(10, 416 - 10 - 20), "Exit", true);
+
         let next_pos = exit_button
-            .rect()
+            .bounding_box()
             .translate(Point::new(10, 0))
             .anchor_point(AnchorPoint::TopRight);
         let clear_button = Button::with_default_style_auto_sized(next_pos, "Clear", true);
 
+        let next_pos = clear_button
+            .bounding_box()
+            .translate(Point::new(10, 0))
+            .anchor_point(AnchorPoint::TopRight);
+        let toggle_button = Button::with_default_style_auto_sized(next_pos, "Eraser", false);
+
+        let slider = Slider::with_default_style(Point::new(20, 20), 100, 1, 10, 2);
+
         Self {
             exit_button,
             clear_button,
+            toggle_button,
+            slider,
+            eraser: false,
             prev_pos: None,
         }
     }
@@ -110,10 +126,13 @@ impl Gui for ScratchpadPage {
     fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
         self.exit_button.draw_init(draw_target);
         self.clear_button.draw_init(draw_target);
+        self.toggle_button.draw_init(draw_target);
+        self.slider.draw_init(draw_target);
     }
 
     fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
         let mut refresh: Option<RefreshBlockMode> = None;
+        let mut handle_drawing: bool = true;
 
         let e = self.exit_button.tick(draw_target, ev);
         if e.clicked {
@@ -134,16 +153,32 @@ impl Gui for ScratchpadPage {
             refresh = Some(RefreshBlockMode::BlockAcknowledge);
         }
 
+        let t = self.toggle_button.tick(draw_target, ev);
+        if t.clicked {
+            self.eraser = !self.eraser;
+            self.toggle_button.label = if self.eraser { "Pen" } else { "Eraser" };
+            refresh = Some(RefreshBlockMode::NonBlocking);
+        }
+        if t.needs_refresh {
+            refresh = Some(RefreshBlockMode::BlockAcknowledge);
+        }
+
+        if self.slider.tick(draw_target, ev) {
+            refresh = Some(RefreshBlockMode::NonBlocking);
+            debug!("stroke width = {}", self.slider.value);
+            handle_drawing = false;
+        }
+
         if let Event::Touch(ev) = ev {
-            if matches!(ev.ev_type, TouchEventType::Move | TouchEventType::Up) {
+            if handle_drawing && matches!(ev.ev_type, TouchEventType::Move | TouchEventType::Up) {
                 if let Some(prev) = self.prev_pos {
+                    let style = PrimitiveStyle::with_stroke(BinaryColor::from(!self.eraser), self.slider.value as u32);
                     Line::new(prev, ev.eg_point())
-                        .into_styled(DEFAULT_PRIMITIVE_STYLE)
+                        .into_styled(style)
                         .draw(draw_target)
                         .unwrap();
 
-                    self.exit_button.draw_init(draw_target);
-                    self.clear_button.draw_init(draw_target);
+                    self.draw_init(draw_target);
 
                     if refresh.is_none() {
                         refresh = Some(RefreshBlockMode::NonBlocking);

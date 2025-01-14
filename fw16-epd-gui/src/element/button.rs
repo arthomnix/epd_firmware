@@ -22,12 +22,12 @@ pub struct ButtonOutput {
 
 #[derive(Debug, defmt::Format)]
 pub struct Button<'a> {
-    rect: RoundedRectangle,
-    label: &'a str,
-    rect_style: PrimitiveStyle<BinaryColor>,
-    char_style: MonoTextStyle<'a, BinaryColor>,
-    touch_feedback: bool,
-    touch_feedback_immediate_release: bool,
+    pub rect: RoundedRectangle,
+    pub label: &'a str,
+    pub rect_style: PrimitiveStyle<BinaryColor>,
+    pub char_style: MonoTextStyle<'a, BinaryColor>,
+    pub touch_feedback: bool,
+    pub touch_feedback_immediate_release: bool,
 
     began_click: bool,
     inverted: bool,
@@ -88,10 +88,6 @@ impl<'a> Button<'a> {
             true,
             touch_feedback_immediate_release,
         )
-    }
-
-    pub fn rect(&self) -> Rectangle {
-        self.rect.bounding_box()
     }
 
     fn invert(&mut self) {
@@ -171,5 +167,9 @@ impl<'a> Gui for Button<'a> {
         }
 
         ret
+    }
+
+    fn bounding_box(&self) -> Rectangle {
+        self.rect.into_styled(self.rect_style).bounding_box()
     }
 }
