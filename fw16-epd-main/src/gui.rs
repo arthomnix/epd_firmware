@@ -18,6 +18,8 @@ enum Page {
 struct MainPage {
     scratchpad_button: Button<'static>,
     test_buttons: [Button<'static>; 16],
+    s1: Slider,
+    s2: Slider,
 }
 
 impl MainPage {
@@ -45,6 +47,8 @@ impl MainPage {
         Self {
             scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad", true),
             test_buttons,
+            s1: Slider::with_default_style(Point::new(10, 300), 220, 1, 20, 10),
+            s2: Slider::with_default_style(Point::new(10, 350), 220, 1, 20, 10),
         }
     }
 }
@@ -54,6 +58,8 @@ impl Gui for MainPage {
 
     fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
         self.scratchpad_button.draw_init(draw_target);
+        self.s1.draw_init(draw_target);
+        self.s2.draw_init(draw_target);
         for button in &self.test_buttons {
             button.draw_init(draw_target);
         }
@@ -69,9 +75,22 @@ impl Gui for MainPage {
             draw_target.refresh(true, RefreshBlockMode::BlockAcknowledge);
         }
 
-
         for button in &mut self.test_buttons {
             needs_refresh |= button.tick(draw_target, ev).needs_refresh;
+        }
+
+        if self.s1.tick(draw_target, ev) {
+            needs_refresh = true;
+            draw_target.fill_solid(&self.s2.bounding_box(), BinaryColor::Off).unwrap();
+            self.s2.marker_radius = self.s1.value;
+            self.s2.draw_init(draw_target);
+        }
+
+        if self.s2.tick(draw_target, ev) {
+            needs_refresh = true;
+            draw_target.fill_solid(&self.s1.bounding_box(), BinaryColor::Off).unwrap();
+            self.s1.marker_radius = self.s2.value;
+            self.s1.draw_init(draw_target);
         }
 
         if needs_refresh {
