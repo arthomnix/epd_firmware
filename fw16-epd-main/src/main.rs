@@ -12,11 +12,12 @@ use defmt_rtt as _;
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
 use embedded_hal::i2c::I2c;
 use mcp9808::MCP9808;
 use mcp9808::reg_conf::{Configuration, ShutdownMode};
-use mcp9808::reg_res::ResolutionVal;
+use mcp9808::reg_res::{Resolution, ResolutionVal};
 use mcp9808::reg_temp_generic::ReadableTempRegister;
 use once_cell::sync::OnceCell;
 use portable_atomic::{AtomicBool, AtomicU128, AtomicU8};
@@ -234,7 +235,23 @@ fn main() -> ! {
     let int: EpdTouchInt = pins.epd_touch_int.reconfigure();
     int.set_interrupt_enabled(EdgeLow, true);
 
+    let mut i2c = hal::i2c::I2C::i2c0(pac.I2C0, i2c_sda, i2c_scl, 400.kHz(), &mut pac.RESETS, clocks.system_clock.get_freq());
+
+    {
+        let mut mcp9808 = MCP9808::new(&mut i2c);
+        let mut res = mcp9808::reg_res::new();
+        res.set_resolution(ResolutionVal::Deg_0_5C);
+        mcp9808.write_register(res).unwrap();
+    }
+
+    critical_section::with(|cs| {
+        GLOBAL_TOUCH_INT_PIN.borrow_ref_mut(cs).replace(int);
+        GLOBAL_I2C.borrow_ref_mut(cs).replace(i2c);
+    });
+
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
+    // make sure temperature sensor has read temperature
+    timer.delay_ms(35);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
@@ -281,13 +298,6 @@ fn main() -> ! {
     let core1 = &mut mc.cores()[1];
     core1.spawn(CORE1_STACK.take().unwrap(), move || {
         info!("core1 init");
-
-        let i2c = hal::i2c::I2C::i2c0(pac.I2C0, i2c_sda, i2c_scl, 400.kHz(), &mut pac.RESETS, clocks.system_clock.get_freq());
-
-        critical_section::with(|cs| {
-            GLOBAL_TOUCH_INT_PIN.borrow_ref_mut(cs).replace(int);
-            GLOBAL_I2C.borrow_ref_mut(cs).replace(i2c);
-        });
 
         unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
 
@@ -350,10 +360,10 @@ fn TIMER_IRQ_0() {
         if let Some(i2c) = &mut i2c {
             let mut mcp9808 = MCP9808::new(i2c);
 
-            let temp = mcp9808.read_temperature().unwrap().get_celsius(ResolutionVal::Deg_0_0625C);
+            let temp = ((mcp9808.read_temperature().unwrap().get_raw_value() & 0x1ff0) >> 4) as i16;
             let clamped = match temp {
-                ..=0.0 => 0u8,
-                60.0.. => 60u8,
+                ..=0 => 0u8,
+                60.. => 60u8,
                 t => t as u8,
             };
 

@@ -2,7 +2,7 @@ use defmt::debug;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_gui::element::button::Button;
 use fw16_epd_gui::element::{Gui, DEFAULT_PRIMITIVE_STYLE};
@@ -124,7 +124,7 @@ impl ScratchpadPage {
             .bounding_box()
             .translate(Point::new(10, 0))
             .anchor_point(AnchorPoint::TopRight);
-        let toggle_button = Button::with_default_style_auto_sized(next_pos, "Eraser", false);
+        let toggle_button = Button::with_default_style_auto_sized(next_pos, "Eraser", true);
 
         let slider = Slider::with_default_style(Point::new(20, 20), 100, 1, 10, 2);
 
@@ -194,6 +194,16 @@ impl Gui for ScratchpadPage {
                     let style = PrimitiveStyle::with_stroke(BinaryColor::from(!self.eraser), self.slider.value as u32);
                     Line::new(prev, ev.eg_point())
                         .into_styled(style)
+                        .draw(draw_target)
+                        .unwrap();
+                    // Draw a circle at each end of the line
+                    let circle_style = PrimitiveStyle::with_fill(BinaryColor::from(!self.eraser));
+                    Circle::with_center(prev, self.slider.value as u32 - 1)
+                        .into_styled(circle_style)
+                        .draw(draw_target)
+                        .unwrap();
+                    Circle::with_center(ev.eg_point(), self.slider.value as u32 - 1)
+                        .into_styled(circle_style)
                         .draw(draw_target)
                         .unwrap();
 
