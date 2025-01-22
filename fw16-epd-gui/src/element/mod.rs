@@ -6,7 +6,7 @@ use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle};
-use fw16_epd_program_interface::{Event, TouchEvent};
+use fw16_epd_program_interface::Event;
 use tp370pgh01::{DIM_X, DIM_Y};
 use crate::draw_target::EpdDrawTarget;
 

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 pervasive-spi = { path = "../pervasive-spi" }
 embedded-hal.workspace = true
-defmt.workspace = true
+defmt = { workspace = true, optional = true }
 cortex-m = { workspace = true, optional = true }
 
 [features]

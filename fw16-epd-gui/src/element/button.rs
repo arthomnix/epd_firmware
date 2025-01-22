@@ -1,4 +1,3 @@
-use core::fmt::Binary;
 use embedded_graphics::prelude::*;
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -14,13 +13,15 @@ const CENTRE_STYLE: TextStyle = TextStyleBuilder::new()
     .baseline(Baseline::Middle)
     .build();
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct ButtonOutput {
     pub clicked: bool,
     pub needs_refresh: bool,
 }
 
-#[derive(Debug, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
 pub struct Button<'a> {
     pub rect: RoundedRectangle,
     pub label: &'a str,

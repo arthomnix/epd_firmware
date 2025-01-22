@@ -5,9 +5,11 @@
 #[cfg(feature = "rp2040")]
 pub mod rp2040;
 
+#[cfg(feature = "defmt")]
+use defmt::{debug, error, trace};
+
 use core::error::Error;
 use core::fmt::{Debug, Display, Formatter};
-use defmt::{debug, error, trace};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin};
 use pervasive_spi::{PervasiveSpi, PervasiveSpiDelays, WithInput, WithOutput};
@@ -115,6 +117,7 @@ where
 
     /// Hard-reset the display using the reset pin, then perform a soft reset.
     pub fn hard_reset(&mut self) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: hard resetting display");
         self.spi.set_cs_low()?;
         self.reset.set_high()?;
@@ -125,6 +128,7 @@ where
         self.delay.delay_ms(5);
         self.spi.set_cs_high()?;
         self.soft_reset()?;
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: hard reset display");
 
         Ok(())
@@ -132,9 +136,11 @@ where
 
     /// Perform a soft reset.
     pub fn soft_reset(&mut self) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: soft resetting display");
         self.spi.write_register(&[0x00, 0x0e])?;
         self.delay.delay_ms(5);
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: soft reset display");
         Ok(())
     }
@@ -144,6 +150,7 @@ where
             return Ok(psr);
         }
 
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: reading PSR");
         self.spi.write_register(&[0xa2])?;
         let mut buf = [0u8; 2];
@@ -151,6 +158,7 @@ where
         self.spi.read(&mut buf)?;
 
         let bank0 = buf[1] == 0xa5;
+        #[cfg(feature = "defmt")]
         debug!(
             "tp370pgh01: PSR is in bank {}",
             if bank0 { '0' } else { '1' }
@@ -167,6 +175,7 @@ where
             let mut buf = [0];
             self.spi.read(&mut buf)?;
             if buf[0] != 0xa5 {
+                #[cfg(feature = "defmt")]
                 error!("tp370pgh01: failed to find PSR");
                 return Err(Tp370pgh01Error::ReadPsrInvalid);
             }
@@ -177,6 +186,7 @@ where
         }
 
         self.spi.read(&mut buf)?;
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: found PSR: {} {}", buf[0], buf[1]);
 
         self.psr.replace(buf);
@@ -185,21 +195,25 @@ where
     }
 
     fn busy_wait(&mut self) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         trace!("tp370pgh01: busy waiting");
         while self.busy.is_low()? {}
         Ok(())
     }
 
     fn trigger_refresh(&mut self) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: turning on DC/DC");
         // turn on DC/DC
         self.spi.write_register(&[0x04])?;
         self.busy_wait()?;
         // refresh
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: refreshing");
         self.spi.write_register(&[0x12])?;
         self.busy_wait()?;
         // turn off DC/DC
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: turning off DC/DC");
         self.spi.write_register(&[0x02])?;
         self.busy_wait()?;
@@ -220,6 +234,7 @@ where
         image: &[u8; IMAGE_BYTES],
         temperature: u8,
     ) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: begin normal refresh");
 
         let psr = self.get_psr()?;
@@ -233,6 +248,7 @@ where
         self.spi.write_data(&psr)?;
 
         // write image data
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: writing image");
         self.spi.write_register(&[0x10])?;
         self.spi.write_data_reversed(image)?;
@@ -241,10 +257,12 @@ where
         for _ in 0..IMAGE_BYTES {
             self.spi.write_data(&[0x00])?;
         }
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: finished writing image");
 
         self.trigger_refresh()?;
 
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: end normal refresh");
         Ok(())
     }
@@ -264,6 +282,7 @@ where
         prev_image: &[u8; IMAGE_BYTES],
         temperature: u8,
     ) -> Result<(), Tp370pgh01Error<Error>> {
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: begin fast refresh");
 
         let psr = self.get_psr()?;
@@ -280,18 +299,21 @@ where
         // set "border setting"
         self.spi.write_register(&[0x50, 0x27])?;
         // send previous image
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: writing image");
         self.spi.write_register(&[0x10])?;
         self.spi.write_data_reversed(prev_image)?;
         // send new image
         self.spi.write_register(&[0x13])?;
         self.spi.write_data_reversed(image)?;
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: finished writing image");
         // set "border setting"
         self.spi.write_register(&[0x50, 0x07])?;
 
         self.trigger_refresh()?;
 
+        #[cfg(feature = "defmt")]
         debug!("tp370pgh01: end fast refresh");
         Ok(())
     }

@@ -5,7 +5,6 @@
 #[cfg(feature = "rp2040")]
 pub mod rp2040;
 
-use defmt::trace;
 use embedded_hal::digital::{InputPin, OutputPin, PinState};
 
 /// A trait for pin types that allows running a closure with the pin configured as an input.
@@ -157,8 +156,6 @@ where
                 self.sck.set_low()?;
                 self.delay.delay_read_after_sck_low();
             }
-
-            trace!("read byte {}", byte);
 
             self.cs.set_high()?;
             self.delay.delay_read_after_byte();

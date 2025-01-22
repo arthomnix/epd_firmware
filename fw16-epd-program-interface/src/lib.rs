@@ -1,10 +1,13 @@
 #![no_std]
 
+pub mod header;
+
 use core::fmt::{Display, Formatter};
 pub use tp370pgh01::IMAGE_BYTES;
 
 /// Option type with stable ABI.
 #[repr(C)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum SafeOption<T> {
     None,
     Some(T),
@@ -52,7 +55,8 @@ impl ProgramFunctionTable {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Event {
     Null,
     Touch(TouchEvent),
@@ -60,7 +64,8 @@ pub enum Event {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TouchEventType {
     Down,
     Up,
@@ -68,7 +73,8 @@ pub enum TouchEventType {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TouchEvent {
     pub ev_type: TouchEventType,
     pub x: u16,

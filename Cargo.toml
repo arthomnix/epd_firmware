@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 
-members = [
-    "fw16-epd-bsp", "fw16-epd-gui",
-    "fw16-epd-main", "fw16-epd-program-interface",
+members = [ "elf2epb",
+    "fw16-epd-bsp", "fw16-epd-example-app", "fw16-epd-gui",
+    "fw16-epd-main", "fw16-epd-program-interface", "fw16-epd-serial-common",
     "pervasive-spi",
     "tp370pgh01",
 ]
@@ -23,6 +23,8 @@ mcp9808 = "0.4"
 usb-device = "0.3"
 usbd-serial = "0.2"
 crc32fast = { version = "1.4", default-features = false }
-embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+embedded-graphics = "0.8.1"
 heapless = "0.8"
 once_cell = { version = "1.20", default-features = false, features = ["critical-section", "portable-atomic"] }
+postcard = "1.1"
+serde = { version = "1.0", default-features = false, features = ["derive"] }

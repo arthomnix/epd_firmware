@@ -1,0 +1,11 @@
+[package]
+name = "fw16-epd-example-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fw16-epd-program-interface = { path = "../fw16-epd-program-interface" }
+fw16-epd-gui = { path = "../fw16-epd-gui" }
+embedded-graphics.workspace = true
+heapless.workspace = true
+panic-halt = "1.0"

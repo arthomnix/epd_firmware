@@ -3,6 +3,8 @@
 
 mod programs;
 mod gui;
+mod serial;
+mod ringbuffer;
 
 #[allow(unused_imports)]
 use panic_probe as _;
@@ -13,14 +15,14 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
 use embedded_hal::delay::DelayNs;
-use embedded_hal::digital::{InputPin, OutputPin, PinState};
+use embedded_hal::digital::OutputPin;
 use embedded_hal::i2c::I2c;
 use mcp9808::MCP9808;
 use mcp9808::reg_conf::{Configuration, ShutdownMode};
 use mcp9808::reg_res::{Resolution, ResolutionVal};
 use mcp9808::reg_temp_generic::ReadableTempRegister;
 use once_cell::sync::OnceCell;
-use portable_atomic::{AtomicBool, AtomicU128, AtomicU8};
+use portable_atomic::{AtomicBool, AtomicU8};
 use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
@@ -38,6 +40,7 @@ use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_program_interface::{Event, RefreshBlockMode, SafeOption, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
+use crate::ringbuffer::RingBuffer;
 //use crate::programs::Programs;
 
 static CORE1_STACK: Stack<8192> = Stack::new();
@@ -63,8 +66,11 @@ static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
 
 static SERIAL_NUMBER: OnceCell<[u8; 16]> = OnceCell::new();
 
-static EVENT_QUEUE: Mutex<RefCell<EventQueue>> = Mutex::new(RefCell::new(EventQueue::new()));
+static EVENT_QUEUE: Mutex<RefCell<RingBuffer<Event>>> = Mutex::new(RefCell::new(RingBuffer::new()));
 static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
+
+static FLASHING: AtomicBool = AtomicBool::new(false);
+static FLASHING_ACK: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
     critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
@@ -99,61 +105,21 @@ extern "C" fn serial_number() -> &'static [u8; 16] {
     SERIAL_NUMBER.get().unwrap()
 }
 
-struct EventQueue<const SIZE: usize = 32> {
-    inner: [Event; SIZE],
-    read_index: usize,
-    write_index: usize,
-}
+/// Function in RAM to be executed by core1 whilst flashing programs (core1 cannot be executing code
+/// from flash whilst writing/erasing flash)
+///
+/// To exit this function from core0, set [FLASHING] to false and SEV
+#[link_section = ".data.ram_func"]
+fn core1_flash_wait() {
+    cortex_m::interrupt::disable();
+    FLASHING_ACK.store(true, Ordering::Relaxed);
 
-impl<const SIZE: usize> EventQueue<SIZE> {
-    const fn new() -> Self {
-        Self {
-            inner: [Event::Null; SIZE],
-            read_index: 0,
-            write_index: 0,
-        }
+    while FLASHING.load(Ordering::Relaxed) {
+        cortex_m::asm::wfe();
     }
 
-    fn wrapping_inc_mut(n: &mut usize) {
-        if *n == SIZE - 1 {
-            *n = 0;
-        } else {
-            *n += 1;
-        }
-    }
-
-    fn wrapping_dec(n: usize) -> usize {
-        if n == 0 {
-            SIZE - 1
-        } else {
-            n - 1
-        }
-    }
-
-    fn pop(&mut self) -> Option<Event> {
-        if self.read_index == self.write_index {
-            None
-        } else {
-            let res = self.inner[self.read_index];
-            Self::wrapping_inc_mut(&mut self.read_index);
-            Some(res)
-        }
-    }
-
-    fn push(&mut self, item: Event) -> bool {
-        if self.write_index == Self::wrapping_dec(self.read_index) {
-            false
-        } else {
-            self.inner[self.write_index] = item;
-            Self::wrapping_inc_mut(&mut self.write_index);
-            true
-        }
-    }
-
-    fn clear(&mut self) {
-        self.read_index = 0;
-        self.write_index = 0;
-    }
+    FLASHING_ACK.store(false, Ordering::Relaxed);
+    unsafe { cortex_m::interrupt::enable() };
 }
 
 #[entry]
@@ -294,12 +260,12 @@ fn main() -> ! {
         GLOBAL_USB_DEVICE = Some(usb_device);
     }
 
+    unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
+
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let core1 = &mut mc.cores()[1];
     core1.spawn(CORE1_STACK.take().unwrap(), move || {
         info!("core1 init");
-
-        unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
 
         let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
 
@@ -308,6 +274,11 @@ fn main() -> ! {
 
         loop {
             cortex_m::asm::wfe();
+
+            if FLASHING.load(Ordering::Relaxed) {
+                core1_flash_wait();
+                continue;
+            }
 
             if EPD_NEEDS_HARD_RESET.swap(false, Ordering::Relaxed) {
                 epd.hard_reset().unwrap();
@@ -339,6 +310,21 @@ fn main() -> ! {
         pac::NVIC::unmask(interrupt::IO_IRQ_BANK0);
         pac::NVIC::unmask(interrupt::SW0_IRQ);
     };
+
+    /*let program = Programs::new().next();
+    if let Some(program) = program {
+        unsafe {
+            program.load();
+            let pft = ProgramFunctionTable {
+                write_image,
+                refresh,
+                next_event,
+                set_touch_enabled,
+                serial_number,
+            };
+            program.entry()(&pft);
+        }
+    }*/
 
     let draw_target = EpdDrawTarget::new(write_image, refresh);
     gui::gui_main(draw_target);
@@ -381,39 +367,6 @@ fn TIMER_IRQ_0() {
     }
 
     critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
-}
-
-#[interrupt]
-fn USBCTRL_IRQ() {
-    static mut INDEX: usize = 0;
-
-    trace!("USBCTRL_IRQ");
-
-    // Safety: These are only accessed within this interrupt handler, or in main() before the
-    // interrupt is enabled.
-    #[allow(static_mut_refs)]
-    let usb_dev = unsafe { GLOBAL_USB_DEVICE.as_mut().unwrap() };
-    #[allow(static_mut_refs)]
-    let serial = unsafe { GLOBAL_USB_SERIAL.as_mut().unwrap() };
-
-    if usb_dev.poll(&mut [serial]) {
-        critical_section::with(|cs| {
-            let mut buf = IMAGE_BUFFER.borrow_ref_mut(cs);
-            match serial.read(&mut buf.as_mut()[*INDEX..]) {
-                Err(UsbError::WouldBlock) => {},
-                Err(e) => panic!("{e:?}"),
-                Ok(count) => {
-                    *INDEX += count;
-                    if *INDEX >= (240 * 416) / 8 {
-                        info!("Finished rx frame over USB");
-                        *INDEX = 0;
-                        FAST_REFRESH.store(false, Ordering::Relaxed);
-                        DO_REFRESH.store(true, Ordering::Relaxed);
-                    }
-                }
-            }
-        })
-    }
 }
 
 #[interrupt]

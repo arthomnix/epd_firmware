@@ -5,7 +5,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
 use fw16_epd_gui::draw_target::EpdDrawTarget;
 use fw16_epd_gui::element::button::Button;
-use fw16_epd_gui::element::{Gui, DEFAULT_PRIMITIVE_STYLE};
+use fw16_epd_gui::element::Gui;
 use fw16_epd_gui::element::slider::Slider;
 use fw16_epd_program_interface::{RefreshBlockMode, SafeOption, Event, TouchEventType};
 use crate::{next_event, set_touch_enabled};

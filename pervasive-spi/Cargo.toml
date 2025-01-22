@@ -6,7 +6,6 @@ description = "Bitbang driver for the SPI-derived protocol used by Pervasive Dis
 
 [dependencies]
 embedded-hal.workspace = true
-defmt.workspace = true
 rp2040-hal = { workspace = true, optional = true }
 
 [features]
