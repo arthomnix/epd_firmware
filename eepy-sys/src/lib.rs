@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod header;
+pub mod syscall;
 
 use core::fmt::{Display, Formatter};
 pub use tp370pgh01::IMAGE_BYTES;

@@ -2,7 +2,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::geometry::Point;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
-use fw16_epd_program_interface::{Event, TouchEventType};
+use eepy_sys::{Event, TouchEventType};
 use crate::draw_target::EpdDrawTarget;
 use crate::element::{Gui, DEFAULT_PRIMITIVE_STYLE};
 

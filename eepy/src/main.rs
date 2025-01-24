@@ -5,7 +5,9 @@ mod programs;
 mod gui;
 mod serial;
 mod ringbuffer;
+mod syscall;
 
+use core::arch::asm;
 #[allow(unused_imports)]
 use panic_probe as _;
 #[allow(unused_imports)]
@@ -37,7 +39,7 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use eepy_gui::draw_target::EpdDrawTarget;
-use eepy_sys::{Event, RefreshBlockMode, SafeOption, TouchEvent, TouchEventType};
+use eepy_sys::{syscall as do_syscall, Event, RefreshBlockMode, SafeOption, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
 use crate::ringbuffer::RingBuffer;
@@ -325,6 +327,22 @@ fn main() -> ! {
             program.entry()(&pft);
         }
     }*/
+
+    // Test syscall
+    unsafe {
+        let mut r0: usize;
+        let mut r1: usize;
+        let mut r2: usize;
+        let mut r3: usize;
+        do_syscall!(
+            31,
+            out r0 in 0,
+            out r1 in 1,
+            out r2 in 2,
+            out r3 in 3,
+        );
+        debug!("{} {} {} {}", r0, r1, r2, r3);
+    }
 
     let draw_target = EpdDrawTarget::new(write_image, refresh);
     gui::gui_main(draw_target);
