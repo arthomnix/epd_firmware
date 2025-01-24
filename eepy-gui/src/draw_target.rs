@@ -4,7 +4,7 @@ use embedded_graphics::geometry::Dimensions;
 use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::Rectangle;
-use fw16_epd_program_interface::RefreshBlockMode;
+use eepy_sys::RefreshBlockMode;
 use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
 
 pub struct EpdDrawTarget {

@@ -10,11 +10,11 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::Point;
 use embedded_graphics::text::Text;
 use heapless::String;
-use fw16_epd_gui::draw_target::EpdDrawTarget;
-use fw16_epd_gui::element::button::Button;
-use fw16_epd_gui::element::{Gui, DEFAULT_TEXT_STYLE};
-use fw16_epd_program_interface::{ProgramFunctionTable, RefreshBlockMode, SafeOption};
-use fw16_epd_program_interface::header::ProgramSlotHeader;
+use eepy_gui::draw_target::EpdDrawTarget;
+use eepy_gui::element::button::Button;
+use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
+use eepy_sys::{ProgramFunctionTable, RefreshBlockMode, SafeOption};
+use eepy_sys::header::ProgramSlotHeader;
 
 extern "C" {
     static _end: *const u8;

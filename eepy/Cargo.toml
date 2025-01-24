@@ -1,13 +1,13 @@
 [package]
-name = "fw16-epd-main"
+name = "eepy"
 version = "0.1.0-alpha"
 edition = "2021"
 
 [dependencies]
 fw16-epd-bsp = { path = "../fw16-epd-bsp" }
-fw16-epd-program-interface = { path = "../fw16-epd-program-interface", features = ["defmt"] }
-fw16-epd-gui = { path = "../fw16-epd-gui", features = ["defmt-derive"] }
-fw16-epd-serial-common = { path = "../fw16-epd-serial-common" }
+eepy-sys = { path = "../eepy-sys", features = ["defmt"] }
+eepy-gui = { path = "../eepy-gui", features = ["defmt-derive"] }
+eepy-serial = { path = "../eepy-serial" }
 tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040", "defmt"] }
 cortex-m.workspace = true
 cortex-m-rt.workspace = true

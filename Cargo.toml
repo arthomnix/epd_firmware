@@ -1,9 +1,14 @@
 [workspace]
 resolver = "2"
 
-members = [ "elf2epb",
-    "fw16-epd-bsp", "fw16-epd-example-app", "fw16-epd-gui",
-    "fw16-epd-main", "fw16-epd-program-interface", "fw16-epd-serial-common",
+members = [
+    "fw16-epd-bsp",
+    "eepy",
+    "eepy-sys",
+    "eepy-serial",
+    "eepy-gui",
+    "eepy-example-app",
+    "elf2epb",
     "pervasive-spi",
     "tp370pgh01",
 ]

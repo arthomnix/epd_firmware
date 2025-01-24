@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use fw16_epd_program_interface::header::*;
+use eepy_sys::header::*;
 
 pub(crate) const unsafe fn slot<'a>(id: u8) -> &'a ProgramSlotHeader {
     if id < 1 || id > 31 {

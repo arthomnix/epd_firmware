@@ -4,12 +4,11 @@ use defmt::{debug, trace};
 use usbd_serial::SerialPort;
 use fw16_epd_bsp::hal::usb::UsbBus;
 use fw16_epd_bsp::pac;
-use fw16_epd_program_interface::header::ProgramSlotHeader;
-use fw16_epd_program_interface::RefreshBlockMode;
-use fw16_epd_serial_common::{Response, SerialCommand};
+use eepy_sys::header::ProgramSlotHeader;
+use eepy_sys::RefreshBlockMode;
+use eepy_serial::{Response, SerialCommand};
 use tp370pgh01::IMAGE_BYTES;
 use crate::{refresh, write_image, GLOBAL_USB_DEVICE, GLOBAL_USB_SERIAL};
-use crate::programs::Programs;
 
 #[derive(Copy, Clone, Debug, defmt::Format)]
 enum SerialState {
