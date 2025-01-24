@@ -1,6 +1,9 @@
 use core::arch::{asm, global_asm};
 use cortex_m_rt::exception;
 use defmt::debug;
+use defmt::export::panic;
+use eepy_sys::syscall::{MiscSyscall, SyscallNumber};
+use crate::SERIAL_NUMBER;
 
 global_asm!(include_str!("syscall.s"));
 
@@ -18,11 +21,16 @@ global_asm!(include_str!("syscall.s"));
 extern "C" fn syscall(sp: *mut usize) {
     // Stack contains R0, R1, R2, R3, R12, LR, ReturnAddress, xPSR
     let stack_values = unsafe { core::slice::from_raw_parts_mut(sp, 8) };
-    let svc_operand = unsafe { (stack_values[6] as *const u8).sub(2).read() };
-    debug!("{:x}", svc_operand);
+    let syscall_num = unsafe { (stack_values[6] as *const u8).sub(2).read() };
 
-    // Increase the value of R0-R3 by 1
-    for i in 0..4 {
-        stack_values[i] += 1;
+    match SyscallNumber::try_from(syscall_num) {
+        Ok(SyscallNumber::Misc) => match MiscSyscall::try_from(stack_values[0]) {
+            Ok(MiscSyscall::GetSerial) => {
+                let serial = SERIAL_NUMBER.get().unwrap();
+                stack_values[0] = (&raw const *serial) as usize;
+            },
+            _ => panic!("illegal syscall"),
+        },
+        _ => panic!("illegal syscall"),
     }
 }
