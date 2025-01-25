@@ -1,12 +1,6 @@
 use core::arch::global_asm;
-use core::sync::atomic::Ordering;
 use defmt::trace;
-use eepy_sys::image::{ImageSyscall, RefreshBlockMode};
-use eepy_sys::input::{Event, InputSyscall, ScEventType, TouchEvent, TouchEventType};
-use eepy_sys::misc::MiscSyscall;
 use eepy_sys::syscall::SyscallNumber;
-use tp370pgh01::IMAGE_BYTES;
-use crate::{DO_REFRESH, EVENT_QUEUE, FAST_REFRESH, IMAGE_BUFFER, REFRESHING, SERIAL_NUMBER, TOUCH_ENABLED};
 
 global_asm!(include_str!("syscall.s"));
 
@@ -41,101 +35,119 @@ extern "C" fn handle_syscall(sp: *mut usize) {
     );
 
     match SyscallNumber::try_from(syscall_num) {
-        Ok(SyscallNumber::Misc) => handle_misc(stack_values),
-        Ok(SyscallNumber::Image) => handle_image(stack_values),
-        Ok(SyscallNumber::Input) => handle_input(stack_values),
+        Ok(SyscallNumber::Misc) => misc::handle_misc(stack_values),
+        Ok(SyscallNumber::Image) => image::handle_image(stack_values),
+        Ok(SyscallNumber::Input) => input::handle_input(stack_values),
         Ok(SyscallNumber::Usb) => todo!("usb syscalls"),
         _ => panic!("illegal syscall"),
     }
 }
 
-fn handle_misc(stack_values: &mut [usize]) {
-    match MiscSyscall::try_from(stack_values[0]) {
-        Ok(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
-        _ => panic!("illegal syscall"),
+mod misc {
+    use eepy_sys::misc::MiscSyscall;
+    use crate::SERIAL_NUMBER;
+
+    pub(super) fn handle_misc(stack_values: &mut [usize]) {
+        match MiscSyscall::try_from(stack_values[0]) {
+            Ok(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
+            _ => panic!("illegal syscall"),
+        }
+    }
+
+    fn handle_get_serial(stack_values: &mut [usize]) {
+        stack_values[0] = (&raw const *SERIAL_NUMBER.get().unwrap()) as usize;
     }
 }
 
-fn handle_get_serial(stack_values: &mut [usize]) {
-    stack_values[0] = (&raw const *SERIAL_NUMBER.get().unwrap()) as usize;
-}
+mod image {
+    use core::sync::atomic::Ordering;
+    use eepy_sys::image::{ImageSyscall, RefreshBlockMode};
+    use tp370pgh01::IMAGE_BYTES;
+    use crate::{DO_REFRESH, FAST_REFRESH, IMAGE_BUFFER, REFRESHING};
 
-fn handle_image(stack_values: &mut [usize]) {
-    match ImageSyscall::try_from(stack_values[0]) {
-        Ok(ImageSyscall::WriteImage) => handle_write_image(stack_values),
-        Ok(ImageSyscall::Refresh) => handle_refresh(stack_values),
-        _ => panic!("illegal syscall"),
+    pub(super) fn handle_image(stack_values: &mut [usize]) {
+        match ImageSyscall::try_from(stack_values[0]) {
+            Ok(ImageSyscall::WriteImage) => handle_write_image(stack_values),
+            Ok(ImageSyscall::Refresh) => handle_refresh(stack_values),
+            _ => panic!("illegal syscall"),
+        }
+    }
+
+    fn handle_write_image(stack_values: &mut [usize]) {
+        let image: &[u8; IMAGE_BYTES] = unsafe { &*(stack_values[1] as *const [u8; IMAGE_BYTES]) };
+        critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
+    }
+
+    fn handle_refresh(stack_values: &mut [usize]) {
+        let fast_refresh = stack_values[1] != 0;
+        let blocking_mode = RefreshBlockMode::try_from(stack_values[2]).expect("illegal refresh blocking mode");
+
+        DO_REFRESH.store(true, Ordering::Relaxed);
+        FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
+        cortex_m::asm::sev();
+
+        if matches!(blocking_mode, RefreshBlockMode::BlockAcknowledge | RefreshBlockMode::BlockFinish) {
+            while DO_REFRESH.load(Ordering::Relaxed) {}
+        }
+
+        if matches!(blocking_mode, RefreshBlockMode::BlockFinish) {
+            while REFRESHING.load(Ordering::Relaxed) {}
+        }
     }
 }
 
-fn handle_write_image(stack_values: &mut [usize]) {
-    let image: &[u8; IMAGE_BYTES] = unsafe { &*(stack_values[1] as *const [u8; IMAGE_BYTES]) };
-    critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
-}
+mod input {
+    use core::sync::atomic::Ordering;
+    use eepy_sys::input::{Event, InputSyscall, ScEventType, TouchEvent, TouchEventType};
+    use crate::{EVENT_QUEUE, TOUCH_ENABLED};
 
-fn handle_refresh(stack_values: &mut [usize]) {
-    let fast_refresh = stack_values[1] != 0;
-    let blocking_mode = RefreshBlockMode::try_from(stack_values[2]).expect("illegal refresh blocking mode");
-
-    DO_REFRESH.store(true, Ordering::Relaxed);
-    FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
-    cortex_m::asm::sev();
-
-    if matches!(blocking_mode, RefreshBlockMode::BlockAcknowledge | RefreshBlockMode::BlockFinish) {
-        while DO_REFRESH.load(Ordering::Relaxed) {}
+    pub(super) fn handle_input(stack_values: &mut [usize]) {
+        match InputSyscall::try_from(stack_values[0]) {
+            Ok(InputSyscall::NextEvent) => handle_next_event(stack_values),
+            Ok(InputSyscall::SetTouchEnabled) => handle_set_touch_enabled(stack_values),
+            Ok(InputSyscall::HasEvent) => handle_has_event(stack_values),
+            _ => panic!("illegal syscall"),
+        }
     }
 
-    if matches!(blocking_mode, RefreshBlockMode::BlockFinish) {
-        while REFRESHING.load(Ordering::Relaxed) {}
+    fn handle_next_event(stack_values: &mut [usize]) {
+        let next_event = critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).pop());
+        let mut x = 0;
+        let mut y = 0;
+        let sc_ev_type = match next_event {
+            None => ScEventType::NoEvent,
+            Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Down, x: px, y: py })) => {
+                x = px;
+                y = py;
+                ScEventType::TouchDown
+            },
+            Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Up, x: px, y: py })) => {
+                x = px;
+                y = py;
+                ScEventType::TouchUp
+            },
+            Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Move, x: px, y: py })) => {
+                x = px;
+                y = py;
+                ScEventType::TouchMove
+            },
+            Some(Event::RefreshFinished) => ScEventType::RefreshFinished,
+        };
+        stack_values[0] = sc_ev_type as usize;
+        stack_values[1] = x as usize;
+        stack_values[2] = y as usize;
     }
-}
 
-fn handle_input(stack_values: &mut [usize]) {
-    match InputSyscall::try_from(stack_values[0]) {
-        Ok(InputSyscall::NextEvent) => handle_next_event(stack_values),
-        Ok(InputSyscall::SetTouchEnabled) => handle_set_touch_enabled(stack_values),
-        Ok(InputSyscall::HasEvent) => handle_has_event(stack_values),
-        _ => panic!("illegal syscall"),
+    fn handle_set_touch_enabled(stack_values: &mut [usize]) {
+        let enable = stack_values[1] != 0;
+        TOUCH_ENABLED.store(enable, Ordering::Relaxed);
+        if !enable {
+            critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).clear());
+        }
     }
-}
 
-fn handle_next_event(stack_values: &mut [usize]) {
-    let next_event = critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).pop());
-    let mut x = 0;
-    let mut y = 0;
-    let sc_ev_type = match next_event {
-        None => ScEventType::NoEvent,
-        Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Down, x: px, y: py })) => {
-            x = px;
-            y = py;
-            ScEventType::TouchDown
-        },
-        Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Up, x: px, y: py })) => {
-            x = px;
-            y = py;
-            ScEventType::TouchUp
-        },
-        Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Move, x: px, y: py })) => {
-            x = px;
-            y = py;
-            ScEventType::TouchMove
-        },
-        Some(Event::RefreshFinished) => ScEventType::RefreshFinished,
-    };
-    stack_values[0] = sc_ev_type as usize;
-    stack_values[1] = x as usize;
-    stack_values[2] = y as usize;
-}
-
-fn handle_set_touch_enabled(stack_values: &mut [usize]) {
-    let enable = stack_values[1] != 0;
-    TOUCH_ENABLED.store(enable, Ordering::Relaxed);
-    if !enable {
-        critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).clear());
+    fn handle_has_event(stack_values: &mut [usize]) {
+        let empty = critical_section::with(|cs| EVENT_QUEUE.borrow_ref(cs).is_empty());
+        stack_values[0] = (!empty) as usize;
     }
-}
-
-fn handle_has_event(stack_values: &mut [usize]) {
-    let empty = critical_section::with(|cs| EVENT_QUEUE.borrow_ref(cs).is_empty());
-    stack_values[0] = (!empty) as usize;
 }
