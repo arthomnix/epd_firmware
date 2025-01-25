@@ -1,5 +1,4 @@
 use core::str::Utf8Error;
-use crate::ProgramFunctionTable;
 
 pub const XIP_BASE: *const u8 = 0x10000000 as *const u8;
 pub const PROGRAM_RAM_AREA_BASE: *mut u8 = 0x20020000 as *mut u8;
@@ -25,13 +24,13 @@ pub struct ProgramSlotHeader {
     pub version_len: usize,
     pub version_ptr: *const u8,
 
-    pub entry: unsafe extern "C" fn(&ProgramFunctionTable),
+    pub entry: unsafe extern "C" fn(),
 }
 
 unsafe impl Sync for ProgramSlotHeader {}
 
 impl ProgramSlotHeader {
-    pub const fn partial(name: &'static str, version: &'static str, entry: unsafe extern "C" fn(&ProgramFunctionTable)) -> Self {
+    pub const fn partial(name: &'static str, version: &'static str, entry: unsafe extern "C" fn()) -> Self {
         Self {
             block_erase_cycles: 0,
             crc: 0,

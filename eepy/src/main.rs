@@ -7,16 +7,12 @@ mod serial;
 mod ringbuffer;
 mod syscall;
 
-use core::arch::asm;
-#[allow(unused_imports)]
-use panic_probe as _;
-#[allow(unused_imports)]
-use defmt_rtt as _;
+extern crate panic_probe;
+extern crate defmt_rtt;
 
 use core::cell::RefCell;
 use critical_section::Mutex;
-use defmt::{debug, info, println, trace, warn};
-use embedded_hal::delay::DelayNs;
+use defmt::{debug, info, trace, warn};
 use embedded_hal::digital::OutputPin;
 use embedded_hal::i2c::I2c;
 use mcp9808::MCP9808;
@@ -39,9 +35,11 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use eepy_gui::draw_target::EpdDrawTarget;
-use eepy_sys::{Event, RefreshBlockMode, SafeOption, TouchEvent, TouchEventType};
+use eepy_sys::input::{Event, TouchEvent, TouchEventType};
+use eepy_sys::misc::get_serial;
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
+use crate::programs::{slot, Programs};
 use crate::ringbuffer::RingBuffer;
 //use crate::programs::Programs;
 
@@ -73,39 +71,6 @@ static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
 
 static FLASHING: AtomicBool = AtomicBool::new(false);
 static FLASHING_ACK: AtomicBool = AtomicBool::new(false);
-
-extern "C" fn write_image(image: &[u8; IMAGE_BYTES]) {
-    critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
-}
-
-extern "C" fn refresh(fast_refresh: bool, block_mode: RefreshBlockMode) {
-    DO_REFRESH.store(true, Ordering::Relaxed);
-    FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
-    cortex_m::asm::sev();
-
-    if matches!(block_mode, RefreshBlockMode::BlockAcknowledge | RefreshBlockMode::BlockFinish) {
-        while DO_REFRESH.load(Ordering::Relaxed) {}
-    }
-
-    if matches!(block_mode, RefreshBlockMode::BlockFinish) {
-        while REFRESHING.load(Ordering::Relaxed) {}
-    }
-}
-
-extern "C" fn next_event() -> SafeOption<Event> {
-    critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).pop()).into()
-}
-
-unsafe extern "C" fn set_touch_enabled(enable: bool) {
-    TOUCH_ENABLED.store(enable, Ordering::Relaxed);
-    if !enable {
-        critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).clear());
-    }
-}
-
-extern "C" fn serial_number() -> &'static [u8; 16] {
-    SERIAL_NUMBER.get().unwrap()
-}
 
 /// Function in RAM to be executed by core1 whilst flashing programs (core1 cannot be executing code
 /// from flash whilst writing/erasing flash)
@@ -160,7 +125,8 @@ fn main() -> ! {
     SERIAL_NUMBER.set(serial).unwrap();
     unsafe { cortex_m::interrupt::enable() };
 
-    info!("Framework 16 EPD firmware version {}, serial no. {}", env!("CARGO_PKG_VERSION"), unsafe { core::str::from_utf8_unchecked(serial_number()) });
+    info!("eepyOS version {} (c) arthomnix 2025", env!("CARGO_PKG_VERSION"));
+    info!("Serial number: {}", eepy_sys::misc::get_serial());
 
     let mut sio = Sio::new(pac.SIO);
     let pins = Pins::new(
@@ -219,7 +185,7 @@ fn main() -> ! {
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     // make sure temperature sensor has read temperature
-    timer.delay_ms(35);
+    //timer.delay_ms(35);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
@@ -250,8 +216,8 @@ fn main() -> ! {
     let usb_device = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x2e8a, 0x000a))
         .strings(&[StringDescriptors::default()
             .manufacturer("arthomnix")
-            .product("Touchscreen EPD Input Module for Framework 16")
-            .serial_number(unsafe { core::str::from_utf8_unchecked(serial_number()) })
+            .product("Touchscreen EPD Input Module for Framework 16 [eepyOS]")
+            .serial_number(get_serial())
         ])
         .unwrap()
         .device_class(usbd_serial::USB_CLASS_CDC)
@@ -299,9 +265,11 @@ fn main() -> ! {
                     epd.soft_reset().unwrap();
                     epd.refresh(&image, TEMP.load(Ordering::Relaxed)).unwrap();
                 }
+
+                critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).push(Event::RefreshFinished));
+                cortex_m::asm::sev();
             }
 
-            critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).push(Event::RefreshFinished));
             REFRESHING.store(false, Ordering::Relaxed);
         }
     }).unwrap();
@@ -313,25 +281,15 @@ fn main() -> ! {
         pac::NVIC::unmask(interrupt::SW0_IRQ);
     };
 
-    /*let program = Programs::new().next();
-    if let Some(program) = program {
-        unsafe {
-            program.load();
-            let pft = ProgramFunctionTable {
-                write_image,
-                refresh,
-                next_event,
-                set_touch_enabled,
-                serial_number,
-            };
-            program.entry()(&pft);
-        }
-    }*/
+    // testing program loading
+    unsafe {
+        let prog = slot(1);
+        debug!("{}", (*prog).name().unwrap());
+        debug!("{}", (*prog).version().unwrap());
+        ((*prog).entry)();
+    }
 
-    // Test syscall
-    println!("{}", eepy_sys::syscall::get_serial());
-
-    let draw_target = EpdDrawTarget::new(write_image, refresh);
+    let draw_target = EpdDrawTarget::new();
     gui::gui_main(draw_target);
 }
 

@@ -1,28 +1,26 @@
-use core::marker::PhantomData;
 use eepy_sys::header::*;
 
-pub(crate) const unsafe fn slot<'a>(id: u8) -> &'a ProgramSlotHeader {
+pub(crate) const unsafe fn slot(id: u8) -> *const ProgramSlotHeader {
     if id < 1 || id > 31 {
         panic!("slot ID must be between 1 and 31");
     }
 
-    &*XIP_BASE.add(SLOT_SIZE * id as usize).cast::<ProgramSlotHeader>()
+    XIP_BASE.add(SLOT_SIZE * id as usize).cast::<ProgramSlotHeader>()
 }
 
 
-pub(crate) struct Programs<'a> {
+pub(crate) struct Programs {
     id: u8,
-    _phantom: PhantomData<&'a ProgramSlotHeader>,
 }
 
-impl<'a> Programs<'a> {
+impl Programs {
     pub(crate) fn new() -> Self {
-        Self { id: 0, _phantom: PhantomData }
+        Self { id: 0 }
     }
 }
 
-impl<'a> Iterator for Programs<'a> {
-    type Item = &'a ProgramSlotHeader;
+impl Iterator for Programs {
+    type Item = *const ProgramSlotHeader;
 
     fn next(&mut self) -> Option<Self::Item> {
         return None;

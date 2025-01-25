@@ -3,6 +3,7 @@
 
 extern crate panic_halt;
 
+use core::arch::asm;
 use core::fmt::Write;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::Drawable;
@@ -13,12 +14,9 @@ use heapless::String;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
-use eepy_sys::{ProgramFunctionTable, RefreshBlockMode, SafeOption};
 use eepy_sys::header::ProgramSlotHeader;
-
-extern "C" {
-    static _end: *const u8;
-}
+use eepy_sys::image::RefreshBlockMode;
+use eepy_sys::input::{has_event, next_event, set_touch_enabled};
 
 #[link_section = ".header"]
 #[used]
@@ -28,15 +26,11 @@ static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
     entry,
 );
 
-#[used]
-static mut FOO: u32 = 10;
-
 #[no_mangle]
-pub extern "C" fn entry(pft: &ProgramFunctionTable) {
+pub extern "C" fn entry() {
+    set_touch_enabled(true);
 
-    unsafe { (pft.set_touch_enabled)(true) };
-
-    let mut draw_target = EpdDrawTarget::new(pft.write_image, pft.refresh);
+    let mut draw_target = EpdDrawTarget::new();
 
     let mut button = Button::with_default_style_auto_sized(Point::new(10, 40), "Click me", true);
     button.draw_init(&mut draw_target);
@@ -45,7 +39,7 @@ pub extern "C" fn entry(pft: &ProgramFunctionTable) {
     let mut counter = 0;
 
     loop {
-        while let SafeOption::Some(ev) = (pft.next_event)() {
+        while let Some(ev) = next_event() {
             let mut needs_refresh = false;
 
             let response = button.tick(&mut draw_target, ev);
@@ -66,6 +60,10 @@ pub extern "C" fn entry(pft: &ProgramFunctionTable) {
             if needs_refresh {
                 draw_target.refresh(true, RefreshBlockMode::NonBlocking);
             }
+        }
+
+        if !has_event() {
+            unsafe { asm!("wfe", "wfe") };
         }
     }
 }

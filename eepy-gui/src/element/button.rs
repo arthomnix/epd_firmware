@@ -4,7 +4,7 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::{CornerRadii, PrimitiveStyle, Rectangle, RoundedRectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyle, TextStyleBuilder};
 use embedded_graphics::text::renderer::TextRenderer;
-use eepy_sys::{Event, TouchEventType};
+use eepy_sys::input::{Event, TouchEventType};
 use crate::draw_target::EpdDrawTarget;
 use crate::element::{Gui, DEFAULT_PRIMITIVE_STYLE, DEFAULT_TEXT_STYLE};
 

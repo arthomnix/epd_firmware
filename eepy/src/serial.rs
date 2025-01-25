@@ -5,10 +5,10 @@ use usbd_serial::SerialPort;
 use fw16_epd_bsp::hal::usb::UsbBus;
 use fw16_epd_bsp::pac;
 use eepy_sys::header::ProgramSlotHeader;
-use eepy_sys::RefreshBlockMode;
 use eepy_serial::{Response, SerialCommand};
+use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
 use tp370pgh01::IMAGE_BYTES;
-use crate::{refresh, write_image, GLOBAL_USB_DEVICE, GLOBAL_USB_SERIAL};
+use crate::{GLOBAL_USB_DEVICE, GLOBAL_USB_SERIAL};
 
 #[derive(Copy, Clone, Debug, defmt::Format)]
 enum SerialState {

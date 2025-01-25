@@ -57,4 +57,8 @@ impl<T: Copy, const SIZE: usize> RingBuffer<T, SIZE> {
         self.read_index = 0;
         self.write_index = 0;
     }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.read_index == self.write_index
+    }
 }

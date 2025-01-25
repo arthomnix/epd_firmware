@@ -7,9 +7,9 @@ _SVCall:
     tst     r0, r1
     beq     .use_msp
     mrs     r0, psp
-    ldr     r1, =syscall
+    ldr     r1, =handle_syscall
     bx      r1
 .use_msp:
     mrs     r0, msp
-    ldr     r1, =syscall
+    ldr     r1, =handle_syscall
     bx      r1

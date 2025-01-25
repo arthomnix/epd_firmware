@@ -7,8 +7,8 @@ use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::Gui;
 use eepy_gui::element::slider::Slider;
-use eepy_sys::{RefreshBlockMode, SafeOption, Event, TouchEventType};
-use crate::{next_event, set_touch_enabled};
+use eepy_sys::image::RefreshBlockMode;
+use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
 
 enum Page {
     MainPage,
@@ -266,6 +266,7 @@ impl Gui for MainGui {
     }
 
     fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        debug!("gui tick");
         if let Some(page) = self.get_current_page_mut().tick(draw_target, ev) {
             self.current_page = page;
             draw_target.clear(BinaryColor::Off).unwrap();
@@ -278,14 +279,21 @@ impl Gui for MainGui {
 pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
     debug!("gui_main");
 
-    unsafe { set_touch_enabled(true) };
+    set_touch_enabled(true);
     let mut gui = MainGui::new();
     gui.draw_init(&mut draw_target);
     draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
 
     loop {
-        while let SafeOption::Some(ev) = next_event() {
+        while let Some(ev) = next_event() {
             gui.tick(&mut draw_target, ev);
+        }
+
+        if !has_event() {
+            // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
+            // WFEs so we don't immediately wake up.
+            cortex_m::asm::wfe();
+            cortex_m::asm::wfe();
         }
     }
 }

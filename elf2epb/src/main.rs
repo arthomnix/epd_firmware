@@ -28,10 +28,26 @@ fn main() {
     let mut data_paddr = 0u32;
     let mut data_vaddr = 0u32;
     let mut data_len = 0u32;
+    let mut current_addr: Option<u32> = None;
 
     for phdr in elf.segments().expect("Failed to parse ELF file") {
         if phdr.p_type == PT_LOAD {
-            bin.extend_from_slice(elf.segment_data(&phdr).expect("Failed to parse ELF file"));
+            if current_addr.is_none() {
+                current_addr.replace(phdr.p_vaddr as u32);
+            }
+
+            let current_addr = current_addr.as_mut().unwrap();
+
+            if *current_addr < phdr.p_vaddr as u32 {
+                let diff = phdr.p_vaddr as u32 - *current_addr;
+                for _ in 0..diff {
+                    bin.push(0);
+                }
+            }
+
+            let segment_data = elf.segment_data(&phdr).expect("Failed to parse ELF file");
+            bin.extend_from_slice(segment_data);
+            *current_addr += segment_data.len() as u32;
         }
 
         // Assume that there is at most one segment that needs to be copied from flash to RAM
