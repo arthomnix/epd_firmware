@@ -143,7 +143,7 @@ fn main() -> ! {
             (0b0 << 28) // disable XN
                 | (0b110 << 24) // AP: privileged or unprivileged read-only
                 | (0b000 << 19) // TEX
-                | (0b011 << 16) // S, C, B: non-shareable, writeback
+                | (0b110 << 16) // S, C, B: shared, write-through
                 | (0b00000000 << 8) // all subregions enabled
                 | (23 << 1) // size: 2^(23 + 1) = 16M
                 | (0b1 << 0) // enable
