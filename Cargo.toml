@@ -10,7 +10,7 @@ members = [
     "eepy-example-app",
     "elf2epb",
     "pervasive-spi",
-    "tp370pgh01",
+    "tp370pgh01", "eepy-launcher",
 ]
 
 [workspace.dependencies]

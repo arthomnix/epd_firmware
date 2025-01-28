@@ -1,18 +1,19 @@
 #![no_main]
 #![no_std]
 
-mod programs;
-mod gui;
 mod serial;
 mod ringbuffer;
 mod syscall;
+mod launcher;
 
 extern crate panic_probe;
 extern crate defmt_rtt;
 
+use core::arch::asm;
 use core::cell::RefCell;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
+use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::i2c::I2c;
 use mcp9808::MCP9808;
@@ -25,6 +26,7 @@ use portable_atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
+use eepy_sys::exec::exec;
 use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdPowerSwitch, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, EpdTouchReset, I2CScl, I2CSda, LaptopSleep, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
 use fw16_epd_bsp::hal::clocks::ClockSource;
@@ -34,14 +36,13 @@ use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
-use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_sys::input::{Event, TouchEvent, TouchEventType};
 use eepy_sys::misc::get_serial;
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
-use crate::programs::{slot, Programs};
 use crate::ringbuffer::RingBuffer;
-//use crate::programs::Programs;
+
+const SRAM_END: *mut u8 = 0x20042000 as *mut u8;
 
 static CORE1_STACK: Stack<8192> = Stack::new();
 
@@ -106,6 +107,55 @@ fn main() -> ! {
     ).unwrap();
 
     core.SCB.set_sleepdeep();
+
+    // Set MPU regions for non-privileged code
+    unsafe {
+        // Region 0: Unprivileged RAM region (first 128K) - start 0x20020000, length 128K
+        core.MPU.rnr.write(0);
+        core.MPU.rbar.write(0x20020000);
+        core.MPU.rasr.write(
+            (0b1 << 28) // XN
+            | (0b011 << 24) // AP: full access
+            | (0b000 << 19) // TEX
+            | (0b011 << 16) // S, C, B: non-shareable, writeback
+            | (0b00000000 << 8) // all subregions enabled
+            | (16 << 1) // size: 2^(16 + 1) = 128K
+            | (0b1 << 0) // enable
+        );
+
+        // Region 1: Unprivileged RAM region (final 8K) - start 0x20040000, length 8K
+        core.MPU.rnr.write(1);
+        core.MPU.rbar.write(0x20040000);
+        core.MPU.rasr.write(
+            (0b1 << 28) // XN
+                | (0b011 << 24) // AP: full access
+                | (0b000 << 19) // TEX
+                | (0b011 << 16) // S, C, B: non-shareable, writeback
+                | (0b00000000 << 8) // all subregions enabled
+                | (12 << 1) // size: 2^(12 + 1) = 8K
+                | (0b1 << 0) // enable
+        );
+
+        // Region 3: Flash - start: 0x10000000, length 16M
+        core.MPU.rnr.write(3);
+        core.MPU.rbar.write(0x10000000);
+        core.MPU.rasr.write(
+            (0b0 << 28) // disable XN
+                | (0b110 << 24) // AP: privileged or unprivileged read-only
+                | (0b000 << 19) // TEX
+                | (0b011 << 16) // S, C, B: non-shareable, writeback
+                | (0b00000000 << 8) // all subregions enabled
+                | (23 << 1) // size: 2^(23 + 1) = 16M
+                | (0b1 << 0) // enable
+        );
+
+        // Enable MPU
+        core.MPU.ctrl.write(
+            (0b1 << 2) // PRIVDEFENA: enable default memory map for privileged access
+            | (0b0 << 1) // HFNMIENA: disable MPU for HardFault and NMI
+            | (0b1 << 0) // ENABLE: enable MPU
+        );
+    }
 
     // Read flash unique ID
     cortex_m::interrupt::disable();
@@ -185,7 +235,7 @@ fn main() -> ! {
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     // make sure temperature sensor has read temperature
-    //timer.delay_ms(35);
+    timer.delay_ms(35);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
@@ -281,16 +331,17 @@ fn main() -> ! {
         pac::NVIC::unmask(interrupt::SW0_IRQ);
     };
 
-    // testing program loading
     unsafe {
-        let prog = slot(1);
-        debug!("{}", (*prog).name().unwrap());
-        debug!("{}", (*prog).version().unwrap());
-        ((*prog).entry)();
-    }
+        asm!(
+            "msr psp, {sram_end}",
+            "msr control, {control_0b10}",
+            "isb",
+            sram_end = in(reg) SRAM_END,
+            control_0b10 = in(reg) 0b10,
+        );
 
-    let draw_target = EpdDrawTarget::new();
-    gui::gui_main(draw_target);
+        exec(0);
+    }
 }
 
 #[interrupt]

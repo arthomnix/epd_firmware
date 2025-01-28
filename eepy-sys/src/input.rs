@@ -1,5 +1,6 @@
 use core::fmt::{Display, Formatter};
-use crate::syscall;
+use core::mem::MaybeUninit;
+use crate::{syscall, SafeOption};
 use crate::syscall::SyscallNumber;
 
 #[repr(usize)]
@@ -76,53 +77,17 @@ impl Display for TouchEvent {
     }
 }
 
-#[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ScEventType {
-    NoEvent = 0,
-    TouchUp = 1,
-    TouchDown = 2,
-    TouchMove = 3,
-    RefreshFinished = 4,
-}
-
-impl TryFrom<usize> for ScEventType {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == ScEventType::NoEvent as usize => Ok(ScEventType::NoEvent),
-            x if x == ScEventType::TouchUp as usize => Ok(ScEventType::TouchUp),
-            x if x == ScEventType::TouchDown as usize => Ok(ScEventType::TouchDown),
-            x if x == ScEventType::TouchMove as usize => Ok(ScEventType::TouchMove),
-            x if x == ScEventType::RefreshFinished as usize => Ok(ScEventType::RefreshFinished),
-            _ => Err(()),
-        }
-    }
-}
-
 pub fn next_event() -> Option<Event> {
-    let mut ev_type: usize;
-    let mut x: u16;
-    let mut y: u16;
+    let mut event: MaybeUninit<SafeOption<Event>> = MaybeUninit::uninit();
 
     unsafe {
         syscall!(
             SyscallNumber::Input,
-            out ev_type in InputSyscall::NextEvent,
-            out x,
-            out y,
+            in InputSyscall::NextEvent,
+            in event.as_mut_ptr(),
         );
-    }
 
-    match ScEventType::try_from(ev_type) {
-        Ok(ScEventType::NoEvent) => None,
-        Ok(ScEventType::TouchUp) => Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Up, x, y })),
-        Ok(ScEventType::TouchDown) => Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Down, x, y })),
-        Ok(ScEventType::TouchMove) => Some(Event::Touch(TouchEvent { ev_type: TouchEventType::Move, x, y })),
-        Ok(ScEventType::RefreshFinished) => Some(Event::RefreshFinished),
-        Err(_) => panic!("invalid touch event"),
+        event.assume_init().into()
     }
 }
 

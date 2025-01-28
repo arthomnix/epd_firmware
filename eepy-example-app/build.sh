@@ -1,6 +1,6 @@
 #!/bin/sh
 
-rm -r out
+rm -rf out
 mkdir out
 mkdir out/bins
 

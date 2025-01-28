@@ -1,4 +1,9 @@
-use defmt::debug;
+#![no_std]
+#![no_main]
+
+extern crate panic_halt;
+
+use core::arch::asm;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
@@ -7,8 +12,18 @@ use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::Gui;
 use eepy_gui::element::slider::Slider;
+use eepy_sys::exec::exec;
 use eepy_sys::image::RefreshBlockMode;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
+use eepy_sys::header::{ProgramSlotHeader, Programs};
+
+#[link_section = ".header"]
+#[used]
+static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
+    "Launcher",
+    env!("CARGO_PKG_VERSION"),
+    entry,
+);
 
 enum Page {
     MainPage,
@@ -17,38 +32,34 @@ enum Page {
 
 struct MainPage {
     scratchpad_button: Button<'static>,
-    test_buttons: [Button<'static>; 16],
-    s1: Slider,
-    s2: Slider,
+    app_buttons: [Option<(Button<'static>, u8)>; 32],
 }
 
 impl MainPage {
     fn new() -> Self {
-        let test_buttons = [
-            Button::with_default_style(Rectangle::new(Point::new(10, 50), Size::new(40, 40)), "0", false),
-            Button::with_default_style(Rectangle::new(Point::new(60, 50), Size::new(40, 40)), "1", false),
-            Button::with_default_style(Rectangle::new(Point::new(110, 50), Size::new(40, 40)), "2", false),
-            Button::with_default_style(Rectangle::new(Point::new(160, 50), Size::new(40, 40)), "3", false),
-            Button::with_default_style(Rectangle::new(Point::new(10, 100), Size::new(40, 40)), "4", false),
-            Button::with_default_style(Rectangle::new(Point::new(60, 100), Size::new(40, 40)), "5", false),
-            Button::with_default_style(Rectangle::new(Point::new(110, 100), Size::new(40, 40)), "6", false),
-            Button::with_default_style(Rectangle::new(Point::new(160, 100), Size::new(40, 40)), "7", false),
-            Button::with_default_style(Rectangle::new(Point::new(10, 150), Size::new(40, 40)), "8", false),
-            Button::with_default_style(Rectangle::new(Point::new(60, 150), Size::new(40, 40)), "9", false),
-            Button::with_default_style(Rectangle::new(Point::new(110, 150), Size::new(40, 40)), "A", false),
-            Button::with_default_style(Rectangle::new(Point::new(160, 150), Size::new(40, 40)), "B", false),
-            Button::with_default_style(Rectangle::new(Point::new(10, 200), Size::new(40, 40)), "C", false),
-            Button::with_default_style(Rectangle::new(Point::new(60, 200), Size::new(40, 40)), "D", false),
-            Button::with_default_style(Rectangle::new(Point::new(110, 200), Size::new(40, 40)), "E", false),
-            Button::with_default_style(Rectangle::new(Point::new(160, 200), Size::new(40, 40)), "F", false),
-        ];
+        let mut buttons = [const { None }; 32];
+        let mut programs = Programs::new();
 
+        for y in 0..16 {
+            for x in 0..2 {
+                if let Some(prog) = programs.next() {
+                    let bi = y * 2 + x;
+                    let x_coord = if x == 0 { 10 } else { 125 };
+                    let y_coord = 35 + 23 * y as i32;
+                    let button = Button::with_default_style(
+                        Rectangle::new(Point::new(x_coord, y_coord), Size::new(105, 20)),
+                        unsafe { (*prog).name().unwrap() },
+                        false,
+                    );
+                    let slot_num = unsafe { (&*prog).slot() };
+                    buttons[bi] = Some((button, slot_num))
+                }
+            }
+        }
 
         Self {
             scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad", true),
-            test_buttons,
-            s1: Slider::with_default_style(Point::new(10, 300), 220, 1, 20, 10),
-            s2: Slider::with_default_style(Point::new(10, 350), 220, 1, 20, 10),
+            app_buttons: buttons,
         }
     }
 }
@@ -58,10 +69,10 @@ impl Gui for MainPage {
 
     fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
         self.scratchpad_button.draw_init(draw_target);
-        self.s1.draw_init(draw_target);
-        self.s2.draw_init(draw_target);
-        for button in &self.test_buttons {
-            button.draw_init(draw_target);
+        for b in &self.app_buttons {
+            if let Some((button, _)) = b {
+                button.draw_init(draw_target);
+            }
         }
     }
 
@@ -75,22 +86,16 @@ impl Gui for MainPage {
             draw_target.refresh(true, RefreshBlockMode::BlockAcknowledge);
         }
 
-        for button in &mut self.test_buttons {
-            needs_refresh |= button.tick(draw_target, ev).needs_refresh;
-        }
+        for b in &mut self.app_buttons {
+            if let Some((button, s)) = b {
+                let response = button.tick(draw_target, ev);
 
-        if self.s1.tick(draw_target, ev) {
-            needs_refresh = true;
-            draw_target.fill_solid(&self.s2.bounding_box(), BinaryColor::Off).unwrap();
-            self.s2.marker_radius = self.s1.value;
-            self.s2.draw_init(draw_target);
-        }
+                if response.clicked {
+                    exec(*s);
+                }
 
-        if self.s2.tick(draw_target, ev) {
-            needs_refresh = true;
-            draw_target.fill_solid(&self.s1.bounding_box(), BinaryColor::Off).unwrap();
-            self.s1.marker_radius = self.s2.value;
-            self.s1.draw_init(draw_target);
+                needs_refresh |= response.needs_refresh;
+            }
         }
 
         if needs_refresh {
@@ -184,7 +189,6 @@ impl Gui for ScratchpadPage {
 
         if self.slider.tick(draw_target, ev) {
             refresh = Some(RefreshBlockMode::NonBlocking);
-            debug!("stroke width = {}", self.slider.value);
             handle_drawing = false;
         }
 
@@ -266,7 +270,6 @@ impl Gui for MainGui {
     }
 
     fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
-        debug!("gui tick");
         if let Some(page) = self.get_current_page_mut().tick(draw_target, ev) {
             self.current_page = page;
             draw_target.clear(BinaryColor::Off).unwrap();
@@ -276,9 +279,10 @@ impl Gui for MainGui {
     }
 }
 
-pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
-    debug!("gui_main");
 
+#[no_mangle]
+pub extern "C" fn entry() {
+    let mut draw_target = EpdDrawTarget::new();
     set_touch_enabled(true);
     let mut gui = MainGui::new();
     gui.draw_init(&mut draw_target);
@@ -292,8 +296,7 @@ pub(crate) fn gui_main(mut draw_target: EpdDrawTarget) -> ! {
         if !has_event() {
             // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
             // WFEs so we don't immediately wake up.
-            cortex_m::asm::wfe();
-            cortex_m::asm::wfe();
+            unsafe { asm!("wfe", "wfe") };
         }
     }
 }

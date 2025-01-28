@@ -1,9 +1,67 @@
 use core::str::Utf8Error;
 
+#[cfg(feature = "defmt")]
+use defmt::{warn, debug};
+
 pub const XIP_BASE: *const u8 = 0x10000000 as *const u8;
 pub const PROGRAM_RAM_AREA_BASE: *mut u8 = 0x20020000 as *mut u8;
 
 pub const SLOT_SIZE: usize = 0x80000;
+
+pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader {
+    if id > 31 {
+        panic!("slot ID must be between 0 and 31");
+    }
+
+    if id == 0 {
+        // "Slot 0" is used for the launcher, which is stored 128K into the flash
+        XIP_BASE.add(128 * 1024).cast()
+    } else {
+        XIP_BASE.add(SLOT_SIZE * id as usize).cast()
+    }
+}
+
+
+pub struct Programs {
+    id: u8,
+}
+
+impl Programs {
+    pub fn new() -> Self {
+        Self { id: 0 }
+    }
+}
+
+impl Iterator for Programs {
+    type Item = *const ProgramSlotHeader;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            self.id += 1;
+
+            if self.id > 31 {
+                return None;
+            }
+
+            let s = unsafe { slot(self.id) };
+
+            unsafe {
+                if (*s).is_valid() {
+                    #[cfg(feature = "defmt")]
+                    debug!("Found program {} version {} in slot {}", (*s).name().unwrap(), (*s).version().unwrap(), self.id);
+                    return Some(s);
+                } else {
+                    #[cfg(feature = "defmt")]
+                    debug!("No program found in slot {}", self.id);
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(32 - self.id as usize))
+    }
+}
 
 #[repr(C)]
 pub struct ProgramSlotHeader {
@@ -13,10 +71,10 @@ pub struct ProgramSlotHeader {
 
     pub data_len: usize,
     pub data_lma: *const u8,
-    pub data_vma: *const u8,
+    pub data_vma: *mut u8,
 
     pub bss_len: usize,
-    pub bss_vma: *const u8,
+    pub bss_vma: *mut u8,
 
     pub name_len: usize,
     pub name_ptr: *const u8,
@@ -37,15 +95,81 @@ impl ProgramSlotHeader {
             len: 0,
             data_len: 0,
             data_lma: core::ptr::null(),
-            data_vma: core::ptr::null(),
+            data_vma: core::ptr::null_mut(),
             bss_len: 0,
-            bss_vma: core::ptr::null(),
+            bss_vma: core::ptr::null_mut(),
             name_len: name.len(),
             name_ptr: name.as_ptr(),
             version_len: version.len(),
             version_ptr: version.as_ptr(),
             entry,
         }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        // Erased flash contains all 1s
+        if self.len == 0 || self.len == usize::MAX {
+            return false;
+        }
+
+        if self.len > SLOT_SIZE {
+            #[cfg(feature = "defmt")]
+            warn!("Program header has invalid size");
+            return false;
+        }
+
+        if !self.check_crc() {
+            #[cfg(feature = "defmt")]
+            warn!("Program has invalid CRC");
+            return false;
+        }
+
+        if self.name().is_err() {
+            #[cfg(feature = "defmt")]
+            warn!("Program name is not valid UTF-8");
+            return false;
+        }
+
+        if self.version().is_err() {
+            #[cfg(feature = "defmt")]
+            warn!("Program version string is not valid UTF-8");
+            return false;
+        }
+
+        let slot_min = (&raw const *self) as usize;
+        let slot_max = slot_min + SLOT_SIZE;
+        let slot_range = slot_min..slot_max;
+        let ram_min = PROGRAM_RAM_AREA_BASE as usize;
+        let ram_max = ram_min + 136 * 1024;
+        let ram_range = ram_min..ram_max;
+
+        if self.data_len > 0 {
+            if !slot_range.contains(&(self.data_lma as usize)) || !slot_range.contains(&(self.data_lma as usize + self.data_len - 1)) {
+                #[cfg(feature = "defmt")]
+                warn!("Program has invalid data section addresses");
+                return false;
+            }
+
+            if !ram_range.contains(&(self.data_vma as usize)) || !ram_range.contains(&(self.data_vma as usize + self.data_len - 1)) {
+                #[cfg(feature = "defmt")]
+                warn!("Program has invalid data section load addresses");
+                return false;
+            }
+        }
+
+        if self.bss_len > 0 {
+            if !ram_range.contains(&(self.bss_vma as usize)) || !ram_range.contains(&(self.data_vma as usize + self.data_len - 1)) {
+                #[cfg(feature = "defmt")]
+                warn!("Program has invalid bss section addresses");
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn slot(&self) -> u8 {
+        (((&raw const *self as usize) - XIP_BASE as usize) / SLOT_SIZE) as u8
     }
 
     pub fn check_crc(&self) -> bool {
@@ -68,6 +192,16 @@ impl ProgramSlotHeader {
     pub fn version(&self) -> Result<&str, Utf8Error> {
         unsafe {
             core::str::from_utf8(core::slice::from_raw_parts(self.version_ptr, self.version_len))
+        }
+    }
+
+    pub unsafe fn load(&self) {
+        if self.data_len > 0 {
+            core::ptr::copy_nonoverlapping(self.data_lma, self.data_vma, self.data_len);
+        }
+
+        if self.bss_len > 0 {
+            self.bss_vma.write_bytes(0, self.bss_len);
         }
     }
 }

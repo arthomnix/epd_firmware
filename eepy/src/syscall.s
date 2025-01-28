@@ -1,15 +1,16 @@
 .global SVCall
-.equ    SVCall, _SVCall + 1 /* thumb bit */
 
-_SVCall:
+    .thumb_func
+SVCall:
+    ldr     r2, =handle_syscall
     movs    r0, #4
     mov     r1, lr
     tst     r0, r1
-    beq     .use_msp
+    beq     100f    // use_msp
     mrs     r0, psp
-    ldr     r1, =handle_syscall
-    bx      r1
-.use_msp:
+    movs    r1, #1
+    bx      r2
+100: // use_msp
     mrs     r0, msp
-    ldr     r1, =handle_syscall
-    bx      r1
+    movs    r1, #0
+    bx      r2

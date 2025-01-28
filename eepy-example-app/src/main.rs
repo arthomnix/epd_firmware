@@ -21,7 +21,7 @@ use eepy_sys::input::{has_event, next_event, set_touch_enabled};
 #[link_section = ".header"]
 #[used]
 static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
-    "Example TESTING FOO BAR BAZ",
+    "ExampleApp",
     env!("CARGO_PKG_VERSION"),
     entry,
 );
@@ -33,19 +33,26 @@ pub extern "C" fn entry() {
     let mut draw_target = EpdDrawTarget::new();
 
     let mut button = Button::with_default_style_auto_sized(Point::new(10, 40), "Click me", true);
+    let mut exit_button = Button::with_default_style_auto_sized(Point::new(10, 386), "Exit", false);
     button.draw_init(&mut draw_target);
+    exit_button.draw_init(&mut draw_target);
     draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
 
     let mut counter = 0;
 
     loop {
         while let Some(ev) = next_event() {
+            if exit_button.tick(&mut draw_target, ev).clicked {
+                return;
+            }
+
             let mut needs_refresh = false;
 
             let response = button.tick(&mut draw_target, ev);
             if response.clicked {
                 draw_target.clear(BinaryColor::Off).unwrap();
                 button.draw_init(&mut draw_target);
+                exit_button.draw_init(&mut draw_target);
 
                 counter += 1;
                 let mut s = String::<16>::new();

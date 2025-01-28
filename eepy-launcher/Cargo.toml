@@ -1,0 +1,10 @@
+[package]
+name = "eepy-launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eepy-sys = { path = "../eepy-sys" }
+eepy-gui = { path = "../eepy-gui" }
+embedded-graphics.workspace = true
+panic-halt = "1.0"
