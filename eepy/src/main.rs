@@ -5,6 +5,8 @@ mod serial;
 mod ringbuffer;
 mod syscall;
 mod launcher;
+mod usb;
+mod exception;
 
 extern crate panic_probe;
 extern crate defmt_rtt;
@@ -235,7 +237,7 @@ fn main() -> ! {
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     // make sure temperature sensor has read temperature
-    timer.delay_ms(35);
+    //timer.delay_ms(35);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
@@ -278,7 +280,14 @@ fn main() -> ! {
         GLOBAL_USB_DEVICE = Some(usb_device);
     }
 
-    unsafe { pac::NVIC::unmask(interrupt::USBCTRL_IRQ) };
+    unsafe {
+        core.NVIC.set_priority(interrupt::USBCTRL_IRQ, 0b11000000);
+        pac::NVIC::unmask(interrupt::USBCTRL_IRQ);
+
+        // FIXME testing
+        core.NVIC.set_priority(interrupt::SW5_IRQ, 0b11000000);
+        pac::NVIC::unmask(interrupt::SW5_IRQ);
+    }
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let core1 = &mut mc.cores()[1];
@@ -350,6 +359,7 @@ fn TIMER_IRQ_0() {
 
     trace!("TIMER_IRQ_0");
 
+
     if ALARM0.is_none() {
         critical_section::with(|cs| *ALARM0 = GLOBAL_ALARM0.borrow(cs).take());
     }
@@ -372,7 +382,7 @@ fn TIMER_IRQ_0() {
             TEMP.store(clamped, Ordering::Relaxed);
 
             alarm.clear_interrupt();
-            alarm.schedule(1.minutes()).unwrap();
+            alarm.schedule(1.secs()).unwrap();
         } else {
             // I2C bus was in use, so try again in a short time
             alarm.clear_interrupt();
@@ -381,6 +391,9 @@ fn TIMER_IRQ_0() {
     }
 
     critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
+
+    // FIXME testing
+    pac::NVIC::pend(interrupt::SW5_IRQ);
 }
 
 #[interrupt]

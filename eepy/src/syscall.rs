@@ -3,38 +3,10 @@ use defmt::{debug, trace, Formatter};
 use eepy_sys::exec::exec;
 use eepy_sys::header::slot;
 use eepy_sys::syscall::SyscallNumber;
+use crate::exception::StackFrame;
 use crate::SRAM_END;
 
 global_asm!(include_str!("syscall.s"));
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct StackFrame {
-    r0: usize,
-    r1: usize,
-    r2: usize,
-    r3: usize,
-    r12: usize,
-    lr: *const u8,
-    pc: *const u8,
-    xpsr: usize,
-}
-
-impl defmt::Format for StackFrame {
-    fn format(&self, fmt: Formatter) {
-        defmt::write!(
-            fmt,
-            "r0=0x{:x} r1=0x{:x} r2=0x{:x} r3=0x{:x} r12=0x{:x} lr={:x} pc={:x} xpsr=0x{:x}",
-            self.r0,
-            self.r1,
-            self.r2,
-            self.r3,
-            self.r12,
-            self.lr,
-            self.pc,
-            self.xpsr,
-        )
-    }
-}
 
 /// Main syscall (SVC) handler.
 ///
@@ -58,7 +30,7 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
         Ok(SyscallNumber::Misc) => misc::handle_misc(stack_values),
         Ok(SyscallNumber::Image) => image::handle_image(stack_values),
         Ok(SyscallNumber::Input) => input::handle_input(stack_values),
-        Ok(SyscallNumber::Usb) => todo!("usb syscalls"),
+        Ok(SyscallNumber::Usb) => crate::usb::handle_usb(stack_values),
         Ok(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
         Err(_) => panic!("illegal syscall"),
     }
@@ -81,7 +53,6 @@ fn handle_exec(stack_values: &mut StackFrame, using_psp: bool) {
             panic!("tried to exec invalid program");
         }
 
-        (*program).load();
         stack_values.pc = core::mem::transmute((*program).entry);
         stack_values.lr = program_return_handler as *const u8;
 
@@ -102,11 +73,13 @@ fn handle_exec(stack_values: &mut StackFrame, using_psp: bool) {
                 ptr = in(reg) SRAM_END,
             )
         }
+
+        (*program).load();
     }
 }
 
 // NOTE: this function runs in unprivileged thread mode
-extern "C" fn program_return_handler() {
+extern "C" fn program_return_handler() -> ! {
     exec(0);
 }
 
