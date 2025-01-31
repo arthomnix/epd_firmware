@@ -6,3 +6,6 @@ rustflags = [
     "-C", "link-arg=--nmagic",
     "-C", "link-arg=-Tlauncher.x",
 ]
+
+[profile.release]
+debug = 2

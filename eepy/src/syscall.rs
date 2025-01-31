@@ -32,6 +32,7 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
         Ok(SyscallNumber::Input) => input::handle_input(stack_values),
         Ok(SyscallNumber::Usb) => crate::usb::handle_usb(stack_values),
         Ok(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
+        Ok(SyscallNumber::CriticalSection) => cs::handle_cs(stack_values),
         Err(_) => panic!("illegal syscall"),
     }
 }
@@ -103,7 +104,10 @@ mod misc {
     }
 
     fn handle_get_serial(stack_values: &mut StackFrame) {
-        stack_values.r0 = (&raw const *SERIAL_NUMBER.get().unwrap()) as usize;
+        let buf = stack_values.r1 as *mut [u8; 16];
+        unsafe {
+            (*buf).copy_from_slice(SERIAL_NUMBER.get().unwrap());
+        }
     }
 
     fn handle_log_message(stack_values: &mut StackFrame) {
@@ -194,5 +198,41 @@ mod input {
     fn handle_has_event(stack_values: &mut StackFrame) {
         let empty = critical_section::with(|cs| EVENT_QUEUE.borrow_ref(cs).is_empty());
         stack_values.r0 = (!empty) as usize;
+    }
+}
+
+mod cs {
+    use core::sync::atomic::Ordering;
+    use eepy_sys::critical_section::CsSyscall;
+    use fw16_epd_bsp::pac;
+    use fw16_epd_bsp::pac::interrupt;
+    use crate::exception::StackFrame;
+
+    pub(super) fn handle_cs(stack_values: &mut StackFrame) {
+        match CsSyscall::try_from(stack_values.r0) {
+            Ok(CsSyscall::Acquire) => handle_acquire(stack_values),
+            Ok(CsSyscall::Release) => handle_release(stack_values),
+            Err(_) => panic!("illegal syscall"),
+        }
+    }
+
+    // USBCTRL_IRQ is the only interrupt that might cause anything to happen
+    // with program memory
+
+    fn handle_acquire(stack_values: &mut StackFrame) {
+        core::sync::atomic::compiler_fence(Ordering::SeqCst);
+        stack_values.r0 = pac::NVIC::is_enabled(interrupt::USBCTRL_IRQ) as usize;
+        pac::NVIC::mask(interrupt::USBCTRL_IRQ);
+        core::sync::atomic::compiler_fence(Ordering::SeqCst);
+    }
+
+    fn handle_release(stack_values: &mut StackFrame) {
+        core::sync::atomic::compiler_fence(Ordering::SeqCst);
+        if stack_values.r1 != 0 {
+            unsafe {
+                pac::NVIC::unmask(interrupt::USBCTRL_IRQ);
+            }
+        }
+        core::sync::atomic::compiler_fence(Ordering::SeqCst);
     }
 }

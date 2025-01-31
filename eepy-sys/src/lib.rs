@@ -7,6 +7,10 @@ pub mod image;
 pub mod input;
 pub mod usb;
 pub mod exec;
+pub mod critical_section;
+
+#[cfg(feature = "critical-section-impl")]
+mod critical_section_impl;
 
 pub use tp370pgh01::IMAGE_BYTES;
 

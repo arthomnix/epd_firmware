@@ -10,6 +10,9 @@ embedded-graphics = { workspace = true, optional = true }
 serde.workspace = true
 crc32fast.workspace = true
 usb-device.workspace = true
+critical-section = { workspace = true, optional = true }
+once_cell = { workspace = true, optional = true }
 
 [features]
 defmt = ["dep:defmt", "usb-device/defmt"]
+critical-section-impl = ["critical-section", "critical-section/restore-state-bool", "once_cell"]

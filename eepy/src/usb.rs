@@ -28,7 +28,7 @@ impl Usb {
                 regs,
                 dpram,
                 clock,
-                false,
+                true,
                 &mut unsafe { pac::RESETS::steal() },
             ));
         }
@@ -224,6 +224,8 @@ fn handle_alloc_ep(stack_values: &mut StackFrame) {
             interval,
         )
     });
+
+    trace!("{}", res);
 
     let res: Result<u8, SafeUsbError> = res.map(|v| v.into()).map_err(|e| e.into());
     unsafe {

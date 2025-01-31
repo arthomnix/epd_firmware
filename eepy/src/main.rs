@@ -169,7 +169,7 @@ fn main() -> ! {
     unsafe { cortex_m::interrupt::enable() };
 
     info!("eepyOS version {} (c) arthomnix 2025", env!("CARGO_PKG_VERSION"));
-    info!("Serial number: {}", eepy_sys::misc::get_serial());
+    info!("Serial number: {}", unsafe { core::str::from_utf8_unchecked(SERIAL_NUMBER.get().unwrap()) });
 
     let mut sio = Sio::new(pac.SIO);
     let pins = Pins::new(
@@ -285,7 +285,7 @@ fn main() -> ! {
      */
 
     unsafe {
-        core.NVIC.set_priority(interrupt::SW5_IRQ, 0b11000000);
+        core.NVIC.set_priority(interrupt::USBCTRL_IRQ, 0b11000000);
     }
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);

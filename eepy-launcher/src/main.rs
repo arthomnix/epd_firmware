@@ -17,7 +17,7 @@ use eepy_sys::exec::exec;
 use eepy_sys::image::RefreshBlockMode;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
 use eepy_sys::header::{ProgramSlotHeader, Programs};
-use eepy_sys::misc::{get_serial, info};
+use eepy_sys::misc::{get_serial, info, trace};
 use eepy_sys::usb;
 use eepy_sys::usb::UsbBus;
 use usb_device::prelude::*;
@@ -295,7 +295,7 @@ pub extern "C" fn testing_usb_handler() {
     let dev: &mut UsbDevice<UsbBus> = unsafe { USB_DEVICE.as_mut().unwrap() };
     let serial: &mut SerialPort<UsbBus> = unsafe { USB_SERIAL.as_mut().unwrap() };
 
-    info("hello from USB handler");
+    trace("Launcher USB handler");
 
     if dev.poll(&mut [serial]) {
         let mut buf = [0u8; 64];
@@ -332,13 +332,10 @@ pub extern "C" fn entry() {
         let serial = SerialPort::new(bus_ref);
         USB_SERIAL = Some(serial);
 
-        let usb_dev = UsbDeviceBuilder::new(
-            bus_ref,
-            UsbVidPid(0x2e8a, 0x000a),
-        )
+        let usb_dev = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x2e8a, 0x000a))
             .strings(&[StringDescriptors::default()
                 .manufacturer("arthomnix")
-                .product("Touchscreen E-Paper Input Module for Framework 16 [eepyOS Launcher]")
+                .product("Touchscreen EPD for FW16 [eepyOS Launcher]")
                 .serial_number(get_serial())
             ])
             .unwrap()
