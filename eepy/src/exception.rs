@@ -1,5 +1,6 @@
 use defmt::Formatter;
 
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StackFrame {
     pub r0: usize,

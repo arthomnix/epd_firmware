@@ -8,8 +8,6 @@ use eepy_sys::header::ProgramSlotHeader;
 use eepy_serial::{Response, SerialCommand};
 use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
 use tp370pgh01::IMAGE_BYTES;
-use crate::{GLOBAL_USB_DEVICE, GLOBAL_USB_SERIAL};
-
 #[derive(Copy, Clone, Debug, defmt::Format)]
 enum SerialState {
     ReadyForCommand,
@@ -67,6 +65,7 @@ unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) {
     debug!("End write slot {} page {}", slot, page);
 }
 
+/*
 #[interrupt]
 fn USBCTRL_IRQ() {
     static mut STATE: SerialState = SerialState::ReadyForCommand;
@@ -180,3 +179,4 @@ fn USBCTRL_IRQ() {
         }
     }
 }
+ */

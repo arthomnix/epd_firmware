@@ -7,4 +7,6 @@ edition = "2021"
 eepy-sys = { path = "../eepy-sys" }
 eepy-gui = { path = "../eepy-gui" }
 embedded-graphics.workspace = true
+usb-device.workspace = true
+usbd-serial.workspace = true
 panic-halt = "1.0"

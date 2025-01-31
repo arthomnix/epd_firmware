@@ -38,3 +38,29 @@ impl<T> From<SafeOption<T>> for Option<T> {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SafeResult<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+impl<T, E> From<SafeResult<T, E>> for Result<T, E> {
+    fn from(value: SafeResult<T, E>) -> Self {
+        match value {
+            SafeResult::Ok(v) => Ok(v),
+            SafeResult::Err(e) => Err(e),
+        }
+    }
+}
+
+impl<T, E> From<Result<T, E>> for SafeResult<T, E> {
+    fn from(value: Result<T, E>) -> Self {
+        match value {
+            Ok(v) => SafeResult::Ok(v),
+            Err(e) => SafeResult::Err(e),
+        }
+    }
+}

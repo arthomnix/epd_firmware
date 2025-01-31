@@ -8,6 +8,7 @@ use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
+use usb_device::bus::UsbBusAllocator;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::Gui;
@@ -16,6 +17,11 @@ use eepy_sys::exec::exec;
 use eepy_sys::image::RefreshBlockMode;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
 use eepy_sys::header::{ProgramSlotHeader, Programs};
+use eepy_sys::misc::{get_serial, info};
+use eepy_sys::usb;
+use eepy_sys::usb::UsbBus;
+use usb_device::prelude::*;
+use usbd_serial::SerialPort;
 
 #[link_section = ".header"]
 #[used]
@@ -91,6 +97,7 @@ impl Gui for MainPage {
                 let response = button.tick(draw_target, ev);
 
                 if response.clicked {
+                    cleanup_usb();
                     exec(*s);
                 }
 
@@ -279,9 +286,69 @@ impl Gui for MainGui {
     }
 }
 
+static mut USB: Option<UsbBusAllocator<UsbBus>> = None;
+static mut USB_DEVICE: Option<UsbDevice<UsbBus>> = None;
+static mut USB_SERIAL: Option<SerialPort<UsbBus>> = None;
+
+#[allow(static_mut_refs)]
+pub extern "C" fn testing_usb_handler() {
+    let dev: &mut UsbDevice<UsbBus> = unsafe { USB_DEVICE.as_mut().unwrap() };
+    let serial: &mut SerialPort<UsbBus> = unsafe { USB_SERIAL.as_mut().unwrap() };
+
+    info("hello from USB handler");
+
+    if dev.poll(&mut [serial]) {
+        let mut buf = [0u8; 64];
+        match serial.read(&mut buf) {
+            Err(_) => {},
+            Ok(0) => {},
+            Ok(_) => {
+                let s = core::str::from_utf8(&buf);
+                if let Ok(s) = s {
+                    info(s);
+                }
+            }
+        }
+    }
+}
+
+fn cleanup_usb() {
+    #[allow(static_mut_refs)]
+    unsafe {
+        let _ = USB.take();
+        let _ = USB_DEVICE.take();
+        let _ = USB_SERIAL.take();
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn entry() {
+    #[allow(static_mut_refs)]
+    unsafe {
+        let bus = UsbBusAllocator::new(UsbBus::init());
+        USB = Some(bus);
+        let bus_ref = USB.as_ref().unwrap();
+
+        let serial = SerialPort::new(bus_ref);
+        USB_SERIAL = Some(serial);
+
+        let usb_dev = UsbDeviceBuilder::new(
+            bus_ref,
+            UsbVidPid(0x2e8a, 0x000a),
+        )
+            .strings(&[StringDescriptors::default()
+                .manufacturer("arthomnix")
+                .product("Touchscreen E-Paper Input Module for Framework 16 [eepyOS Launcher]")
+                .serial_number(get_serial())
+            ])
+            .unwrap()
+            .device_class(usbd_serial::USB_CLASS_CDC)
+            .build();
+        USB_DEVICE = Some(usb_dev);
+    }
+
+    usb::set_handler(testing_usb_handler);
+
     let mut draw_target = EpdDrawTarget::new();
     set_touch_enabled(true);
     let mut gui = MainGui::new();

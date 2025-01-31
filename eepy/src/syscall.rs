@@ -1,5 +1,5 @@
 use core::arch::{asm, global_asm};
-use defmt::{debug, trace, Formatter};
+use defmt::trace;
 use eepy_sys::exec::exec;
 use eepy_sys::header::slot;
 use eepy_sys::syscall::SyscallNumber;
@@ -37,6 +37,10 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
 }
 
 fn handle_exec(stack_values: &mut StackFrame, using_psp: bool) {
+    // cleanup previous program's USB
+    crate::usb::handle_uninit();
+    crate::usb::handle_clear_handler();
+
     // disable privileged mode
     unsafe {
         asm!(
@@ -84,19 +88,38 @@ extern "C" fn program_return_handler() -> ! {
 }
 
 mod misc {
-    use eepy_sys::misc::MiscSyscall;
+    use defmt::{debug, error, info, trace, warn};
+    use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
+    use eepy_sys::misc::{LogLevel, MiscSyscall};
     use crate::SERIAL_NUMBER;
     use super::StackFrame;
 
     pub(super) fn handle_misc(stack_values: &mut StackFrame) {
         match MiscSyscall::try_from(stack_values.r0) {
             Ok(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
-            _ => panic!("illegal syscall"),
+            Ok(MiscSyscall::LogMessage) => handle_log_message(stack_values),
+            Err(_) => panic!("illegal syscall"),
         }
     }
 
     fn handle_get_serial(stack_values: &mut StackFrame) {
         stack_values.r0 = (&raw const *SERIAL_NUMBER.get().unwrap()) as usize;
+    }
+
+    fn handle_log_message(stack_values: &mut StackFrame) {
+        let log_level: LogLevel = stack_values.r1.try_into().expect("invalid log level");
+        let len = stack_values.r2;
+        let ptr = stack_values.r3 as *const u8;
+        let s = unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(ptr, len)) };
+        let slot_n = (stack_values.pc as usize - XIP_BASE as usize) / SLOT_SIZE;
+
+        match log_level {
+            LogLevel::Trace => trace!("[PROGRAM:{}] {}", slot_n, s),
+            LogLevel::Debug => debug!("[PROGRAM:{}] {}", slot_n, s),
+            LogLevel::Info => info!("[PROGRAM:{}] {}", slot_n, s),
+            LogLevel::Warn => warn!("[PROGRAM:{}] {}", slot_n, s),
+            LogLevel::Error => error!("[PROGRAM:{}] {}", slot_n, s),
+        }
     }
 }
 
@@ -111,7 +134,7 @@ mod image {
         match ImageSyscall::try_from(stack_values.r0) {
             Ok(ImageSyscall::WriteImage) => handle_write_image(stack_values),
             Ok(ImageSyscall::Refresh) => handle_refresh(stack_values),
-            _ => panic!("illegal syscall"),
+            Err(_) => panic!("illegal syscall"),
         }
     }
 
@@ -150,7 +173,7 @@ mod input {
             Ok(InputSyscall::NextEvent) => handle_next_event(stack_values),
             Ok(InputSyscall::SetTouchEnabled) => handle_set_touch_enabled(stack_values),
             Ok(InputSyscall::HasEvent) => handle_has_event(stack_values),
-            _ => panic!("illegal syscall"),
+            Err(_) => panic!("illegal syscall"),
         }
     }
 

@@ -9,3 +9,7 @@ defmt = { workspace = true, optional = true }
 embedded-graphics = { workspace = true, optional = true }
 serde.workspace = true
 crc32fast.workspace = true
+usb-device.workspace = true
+
+[features]
+defmt = ["dep:defmt", "usb-device/defmt"]

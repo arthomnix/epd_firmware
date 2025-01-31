@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 fw16-epd-bsp = { path = "../fw16-epd-bsp" }
 eepy-sys = { path = "../eepy-sys", features = ["defmt"] }
-eepy-gui = { path = "../eepy-gui", features = ["defmt-derive"] }
 eepy-serial = { path = "../eepy-serial" }
 tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040", "defmt"] }
 cortex-m.workspace = true
@@ -18,10 +17,6 @@ defmt-rtt.workspace = true
 panic-probe.workspace = true
 critical-section.workspace = true
 portable-atomic.workspace = true
-mcp9808.workspace = true
 usb-device.workspace = true
-usbd-serial.workspace = true
-crc32fast.workspace = true
-embedded-graphics = { workspace = true, features = ["defmt"] }
-heapless.workspace = true
 once_cell.workspace = true
+mcp9808.workspace = true

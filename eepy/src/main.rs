@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-mod serial;
+//mod serial;
 mod ringbuffer;
 mod syscall;
 mod launcher;
@@ -25,9 +25,6 @@ use mcp9808::reg_temp_generic::ReadableTempRegister;
 use once_cell::sync::OnceCell;
 use portable_atomic::{AtomicBool, AtomicU8};
 use portable_atomic::Ordering;
-use usb_device::bus::UsbBusAllocator;
-use usb_device::prelude::*;
-use usbd_serial::SerialPort;
 use eepy_sys::exec::exec;
 use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdPowerSwitch, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, EpdTouchReset, I2CScl, I2CSda, LaptopSleep, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
@@ -39,7 +36,6 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use eepy_sys::input::{Event, TouchEvent, TouchEventType};
-use eepy_sys::misc::get_serial;
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
 use crate::ringbuffer::RingBuffer;
@@ -62,11 +58,6 @@ static FAST_REFRESH: AtomicBool = AtomicBool::new(false);
 static REFRESHING: AtomicBool = AtomicBool::new(false);
 static EPD_NEEDS_HARD_RESET: AtomicBool = AtomicBool::new(true);
 static TEMP: AtomicU8 = AtomicU8::new(20);
-
-static mut GLOBAL_USB_DEVICE: Option<UsbDevice<hal::usb::UsbBus>> = None;
-static mut GLOBAL_USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
-static mut GLOBAL_USB_SERIAL: Option<SerialPort<hal::usb::UsbBus>> = None;
-
 static SERIAL_NUMBER: OnceCell<[u8; 16]> = OnceCell::new();
 
 static EVENT_QUEUE: Mutex<RefCell<RingBuffer<Event>>> = Mutex::new(RefCell::new(RingBuffer::new()));
@@ -247,6 +238,9 @@ fn main() -> ! {
     }
     pac::NVIC::pend(interrupt::TIMER_IRQ_0);
 
+    usb::init_usb(pac.USBCTRL_REGS, pac.USBCTRL_DPRAM, clocks.usb_clock);
+
+    /*
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
         pac.USBCTRL_REGS,
         pac.USBCTRL_DPRAM,
@@ -287,6 +281,11 @@ fn main() -> ! {
         // FIXME testing
         core.NVIC.set_priority(interrupt::SW5_IRQ, 0b11000000);
         pac::NVIC::unmask(interrupt::SW5_IRQ);
+    }
+     */
+
+    unsafe {
+        core.NVIC.set_priority(interrupt::SW5_IRQ, 0b11000000);
     }
 
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
@@ -382,7 +381,7 @@ fn TIMER_IRQ_0() {
             TEMP.store(clamped, Ordering::Relaxed);
 
             alarm.clear_interrupt();
-            alarm.schedule(1.secs()).unwrap();
+            alarm.schedule(1.minutes()).unwrap();
         } else {
             // I2C bus was in use, so try again in a short time
             alarm.clear_interrupt();
@@ -391,9 +390,6 @@ fn TIMER_IRQ_0() {
     }
 
     critical_section::with(|cs| GLOBAL_I2C.borrow(cs).replace(i2c));
-
-    // FIXME testing
-    pac::NVIC::pend(interrupt::SW5_IRQ);
 }
 
 #[interrupt]

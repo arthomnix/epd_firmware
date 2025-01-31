@@ -31,15 +31,15 @@ fn main() {
     let mut current_addr: Option<u32> = None;
 
     for phdr in elf.segments().expect("Failed to parse ELF file") {
-        if phdr.p_type == PT_LOAD {
+        if phdr.p_type == PT_LOAD && phdr.p_filesz > 0 {
             if current_addr.is_none() {
-                current_addr.replace(phdr.p_vaddr as u32);
+                current_addr.replace(phdr.p_paddr as u32);
             }
 
             let current_addr = current_addr.as_mut().unwrap();
 
-            if *current_addr < phdr.p_vaddr as u32 {
-                let diff = phdr.p_vaddr as u32 - *current_addr;
+            if *current_addr < phdr.p_paddr as u32 {
+                let diff = phdr.p_paddr as u32 - *current_addr;
                 for _ in 0..diff {
                     bin.push(0);
                 }
@@ -71,7 +71,7 @@ fn main() {
     let len = bin.len() as u32;
 
     // Add missing EPB header entries
-    bin[8..12].copy_from_slice(&len.to_le_bytes());             // len
+    bin[8..12].copy_from_slice(&len.to_le_bytes());          // len
     bin[12..16].copy_from_slice(&data_len.to_le_bytes());       // data_len
     bin[16..20].copy_from_slice(&data_paddr.to_le_bytes());     // data_lma
     bin[20..24].copy_from_slice(&data_vaddr.to_le_bytes());     // data_vma
