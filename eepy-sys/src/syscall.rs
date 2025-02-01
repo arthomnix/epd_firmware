@@ -30,6 +30,7 @@ impl TryFrom<u8> for SyscallNumber {
 
 /// Perform a raw system call.
 #[macro_export]
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 macro_rules! syscall {
     (
         $syscall_num:expr,
@@ -60,4 +61,10 @@ macro_rules! syscall {
             syscall_num = const $syscall_num as u8,
         )
     }
+}
+
+#[macro_export]
+#[cfg(not(all(target_os = "none", target_arch = "arm")))]
+macro_rules! syscall {
+    ( $( $_foo:tt )* ) => { panic!("Cannot use eepyOS syscalls on non-eepyOS platforms") };
 }

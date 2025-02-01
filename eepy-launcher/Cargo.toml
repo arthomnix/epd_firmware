@@ -12,4 +12,5 @@ usb-device.workspace = true
 usbd-serial.workspace = true
 portable-atomic.workspace = true
 heapless.workspace = true
+postcard.workspace = true
 panic-halt = "1.0"

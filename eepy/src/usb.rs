@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use core::fmt::{Debug, Formatter};
 use core::sync::atomic::Ordering;
 use critical_section::Mutex;
-use defmt::{debug, trace, warn};
+use defmt::{trace, warn};
 use portable_atomic::AtomicPtr;
 use eepy_sys::usb::{SafePollResult, SafeUsbError, UsbEpAllocArgs, UsbReadArgs, UsbSyscall, UsbWriteArgs};
 use fw16_epd_bsp::hal::clocks::UsbClock;

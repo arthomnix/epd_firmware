@@ -35,7 +35,7 @@ use fw16_epd_bsp::hal::multicore::{Multicore, Stack};
 use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
-use eepy_sys::input::{Event, TouchEvent, TouchEventType};
+use eepy_sys::input_common::{Event, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
 use crate::ringbuffer::RingBuffer;
@@ -228,7 +228,7 @@ fn main() -> ! {
 
     let mut timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     // make sure temperature sensor has read temperature
-    //timer.delay_ms(35);
+    timer.delay_ms(35);
     let mut alarm = timer.alarm_0().unwrap();
     alarm.enable_interrupt();
     critical_section::with(|cs| GLOBAL_ALARM0.borrow_ref_mut(cs).replace(alarm));
@@ -239,50 +239,6 @@ fn main() -> ! {
     pac::NVIC::pend(interrupt::TIMER_IRQ_0);
 
     usb::init_usb(pac.USBCTRL_REGS, pac.USBCTRL_DPRAM, clocks.usb_clock);
-
-    /*
-    let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
-        pac.USBCTRL_REGS,
-        pac.USBCTRL_DPRAM,
-        clocks.usb_clock,
-        true,
-        &mut pac.RESETS,
-    ));
-
-    unsafe {
-        GLOBAL_USB_BUS = Some(usb_bus);
-    }
-
-    // Safety: These are only accessed within this interrupt handler, or in main() before the
-    // interrupt is enabled.
-    #[allow(static_mut_refs)]
-    let bus_ref = unsafe { GLOBAL_USB_BUS.as_ref().unwrap() };
-
-    let serial = SerialPort::new(bus_ref);
-    let usb_device = UsbDeviceBuilder::new(bus_ref, UsbVidPid(0x2e8a, 0x000a))
-        .strings(&[StringDescriptors::default()
-            .manufacturer("arthomnix")
-            .product("Touchscreen EPD Input Module for Framework 16 [eepyOS]")
-            .serial_number(get_serial())
-        ])
-        .unwrap()
-        .device_class(usbd_serial::USB_CLASS_CDC)
-        .build();
-
-    unsafe {
-        GLOBAL_USB_SERIAL = Some(serial);
-        GLOBAL_USB_DEVICE = Some(usb_device);
-    }
-
-    unsafe {
-        core.NVIC.set_priority(interrupt::USBCTRL_IRQ, 0b11000000);
-        pac::NVIC::unmask(interrupt::USBCTRL_IRQ);
-
-        // FIXME testing
-        core.NVIC.set_priority(interrupt::SW5_IRQ, 0b11000000);
-        pac::NVIC::unmask(interrupt::SW5_IRQ);
-    }
-     */
 
     unsafe {
         core.NVIC.set_priority(interrupt::USBCTRL_IRQ, 0b11000000);

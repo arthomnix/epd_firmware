@@ -43,6 +43,7 @@ fn main() {
                 for _ in 0..diff {
                     bin.push(0);
                 }
+                *current_addr = phdr.p_paddr as u32;
             }
 
             let segment_data = elf.segment_data(&phdr).expect("Failed to parse ELF file");

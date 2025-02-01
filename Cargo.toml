@@ -10,7 +10,9 @@ members = [
     "eepy-example-app",
     "elf2epb",
     "pervasive-spi",
-    "tp370pgh01", "eepy-launcher",
+    "tp370pgh01",
+    "eepy-launcher",
+    "eepytool",
 ]
 
 [workspace.dependencies]
@@ -33,3 +35,8 @@ heapless = "0.8"
 once_cell = { version = "1.20", default-features = false, features = ["critical-section"] }
 postcard = "1.1"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
+elf = "0.7"
+clap = { version = "4.5", features = ["derive"] }
+serialport = "4.7"
+tar = "0.4"
+zstd = "0.13"

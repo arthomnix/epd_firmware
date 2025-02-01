@@ -1,16 +1,28 @@
 #![no_std]
 
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod header;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod syscall;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod misc;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod image;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod input;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod usb;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod exec;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod critical_section;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod flash;
+pub mod input_common;
+
 
 #[cfg(feature = "critical-section-impl")]
+#[cfg(all(target_os = "none", target_arch = "arm"))]
 mod critical_section_impl;
 
 pub use tp370pgh01::IMAGE_BYTES;

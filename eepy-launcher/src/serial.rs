@@ -1,13 +1,14 @@
 use core::sync::atomic::Ordering;
 use core::fmt::Write;
-use portable_atomic::AtomicBool;
+use portable_atomic::{AtomicBool, AtomicU8};
 use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
 use eepy_serial::{Response, SerialCommand};
 use eepy_sys::flash::{erase_and_program, invalidate_cache};
 use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
 use eepy_sys::IMAGE_BYTES;
-use eepy_sys::misc::{debug, trace};
+use eepy_sys::input::{next_event, set_touch_enabled};
+use eepy_sys::misc::{debug, info, trace};
 use eepy_sys::usb::UsbBus;
 use crate::{USB_DEVICE, USB_SERIAL};
 
@@ -38,7 +39,11 @@ fn write_all(serial: &mut SerialPort<UsbBus>, mut buf: &[u8]) {
     }
 }
 
+pub(crate) static NEEDS_REFRESH: AtomicBool = AtomicBool::new(false);
 pub(crate) static NEEDS_REFRESH_PROGRAMS: AtomicBool = AtomicBool::new(false);
+pub(crate) static HOST_APP: AtomicBool = AtomicBool::new(false);
+
+static PROG_SLOT: AtomicU8 = AtomicU8::new(0);
 
 pub(crate) extern "C" fn usb_handler() {
     trace("USB handler");
@@ -59,6 +64,10 @@ pub(crate) extern "C" fn usb_handler() {
     let buf = unsafe { &mut BUF };
 
     if dev.poll(&mut [serial]) {
+        let mut s = heapless::String::<100>::new();
+        write!(s, "{state:?}").unwrap();
+        debug(&s);
+
         match state {
             SerialState::ReadyForCommand => {
                 let mut cmd_buf = [0u8];
@@ -67,12 +76,64 @@ pub(crate) extern "C" fn usb_handler() {
                         return;
                     }
 
-                    match SerialCommand::try_from(cmd_buf[0]) {
-                        Ok(SerialCommand::RefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, index: 0 },
-                        Ok(SerialCommand::RefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, index: 0 },
-                        Ok(SerialCommand::UploadProgram) => *state = SerialState::FlashingProgram { index: 0, page: 0, num_pages: None, remainder: None },
-                        Ok(_) => write_all(serial, &[Response::UnknownCommand as u8]),
-                        Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
+                    if HOST_APP.load(Ordering::Relaxed) {
+                        match SerialCommand::try_from(cmd_buf[0]) {
+                            Ok(SerialCommand::RefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, index: 0 },
+                            Ok(SerialCommand::RefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, index: 0 },
+                            Ok(SerialCommand::ExitHostApp) => {
+                                set_touch_enabled(true);
+                                HOST_APP.store(false, Ordering::Relaxed);
+                                NEEDS_REFRESH.store(true, Ordering::Relaxed);
+                                write_all(serial, &[Response::Ack as u8]);
+                            },
+                            Ok(SerialCommand::NextEvent) => {
+                                write_all(serial, &[Response::Ack as u8]);
+                                write_all(serial, &postcard::to_vec::<_, 32>(&next_event()).unwrap());
+                            },
+                            Ok(SerialCommand::EnableTouch) => {
+                                set_touch_enabled(true);
+                                write_all(serial, &[Response::Ack as u8]);
+                            },
+                            Ok(SerialCommand::DisableTouch) => {
+                                set_touch_enabled(false);
+                                write_all(serial, &[Response::Ack as u8]);
+                            },
+                            Ok(SerialCommand::EnterHostApp | SerialCommand::GetProgramSlot | SerialCommand::UploadProgram) => {
+                                write_all(serial, &[Response::IncorrectMode as u8]);
+                            }
+                            Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
+                        }
+                    } else {
+                        match SerialCommand::try_from(cmd_buf[0]) {
+                            Ok(SerialCommand::GetProgramSlot) => {
+                                write_all(serial, &[Response::Ack as u8, 1]);
+                                PROG_SLOT.store(1, Ordering::Relaxed);
+                            },
+                            Ok(SerialCommand::UploadProgram) => {
+                                if PROG_SLOT.load(Ordering::Relaxed) == 0 {
+                                    write_all(serial, &[Response::NoProgramSlot as u8]);
+                                } else {
+                                    *state = SerialState::FlashingProgram { index: 0, page: 0, num_pages: None, remainder: None };
+                                    write_all(serial, &[Response::Ack as u8]);
+                                }
+                            },
+                            Ok(SerialCommand::EnterHostApp) => {
+                                HOST_APP.store(true, Ordering::Relaxed);
+                                write_image(&[0u8; IMAGE_BYTES]);
+                                refresh(false, RefreshBlockMode::NonBlocking);
+                                set_touch_enabled(false);
+                                write_all(serial, &[Response::Ack as u8]);
+                            },
+                            Ok(
+                                SerialCommand::RefreshNormal
+                                | SerialCommand::RefreshFast
+                                | SerialCommand::ExitHostApp
+                                | SerialCommand::NextEvent
+                                | SerialCommand::DisableTouch
+                                | SerialCommand::EnableTouch
+                            ) => write_all(serial, &[Response::IncorrectMode as u8]),
+                            Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
+                        }
                     }
                 }
             }
@@ -127,20 +188,24 @@ pub(crate) extern "C" fn usb_handler() {
                             // Actually write the flash page
                             // TODO: get next slot instead of always using slot 1
                             // TODO: wear levelling
+                            debug("writing page");
                             unsafe { write_flash(&buf[4096..8192], 1, *page) };
 
                             *page += 1;
                             // If this is the last page, also flash the first page which we didn't
                             // do at the start
                             if *page == num_pages {
+                                debug("finalising");
                                 unsafe { write_flash(&buf[0..4096], 1, 0) };
 
+                                debug("invalidating XIP cache");
                                 // Invalidate the XIP cache, in case something from the flash area
                                 // we just wrote is in there
-                                unsafe { invalidate_cache() }
+                                unsafe { invalidate_cache() };
+                                debug("invalidated XIP cache");
 
                                 NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);
-                                debug("Finished writing program");
+                                info("Finished writing program");
 
                                 *state = SerialState::ReadyForCommand;
                             }

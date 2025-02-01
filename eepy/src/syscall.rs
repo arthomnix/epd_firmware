@@ -168,7 +168,8 @@ mod image {
 
 mod input {
     use core::sync::atomic::Ordering;
-    use eepy_sys::input::{Event, InputSyscall};
+    use eepy_sys::input::InputSyscall;
+    use eepy_sys::input_common::Event;
     use eepy_sys::SafeOption;
     use crate::{EVENT_QUEUE, TOUCH_ENABLED};
     use super::StackFrame;
@@ -239,6 +240,7 @@ mod cs {
 }
 
 mod flash {
+    use core::arch::asm;
     use core::sync::atomic::Ordering;
     use eepy_sys::flash::FlashSyscall;
     use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
@@ -344,6 +346,7 @@ mod flash {
             let xip = pac::Peripherals::steal().XIP_CTRL;
             xip.flush().write(|w| w.flush().set_bit());
             xip.flush().read();
+            asm!("dsb", "isb");
         };
     }
 }

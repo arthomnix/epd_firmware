@@ -18,14 +18,15 @@ use eepy_gui::element::Gui;
 use eepy_gui::element::slider::Slider;
 use eepy_sys::exec::exec;
 use eepy_sys::image::RefreshBlockMode;
-use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
+use eepy_sys::input::{has_event, next_event, set_touch_enabled};
+use eepy_sys::input_common::{Event, TouchEventType};
 use eepy_sys::header::{ProgramSlotHeader, Programs};
-use eepy_sys::misc::{get_serial};
+use eepy_sys::misc::get_serial;
 use eepy_sys::usb;
 use eepy_sys::usb::UsbBus;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
-use crate::serial::NEEDS_REFRESH_PROGRAMS;
+use crate::serial::{HOST_APP, NEEDS_REFRESH, NEEDS_REFRESH_PROGRAMS};
 
 #[link_section = ".header"]
 #[used]
@@ -339,21 +340,24 @@ pub extern "C" fn entry() {
     draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
 
     loop {
-        while let Some(ev) = next_event() {
-            gui.tick(&mut draw_target, ev);
-        }
+        if !HOST_APP.load(Ordering::Relaxed) {
+            while let Some(ev) = next_event() {
+                gui.tick(&mut draw_target, ev);
+            }
 
-        if !has_event() {
-            // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
-            // WFEs so we don't immediately wake up.
-            unsafe { asm!("wfe", "wfe") };
-        }
-
-        if NEEDS_REFRESH_PROGRAMS.swap(false, Ordering::Relaxed) {
-            gui.main_page.refresh_buttons();
-            if gui.current_page == Page::MainPage {
+            if NEEDS_REFRESH_PROGRAMS.swap(false, Ordering::Relaxed) {
+                gui.main_page.refresh_buttons();
+                if gui.current_page == Page::MainPage {
+                    gui.draw_init(&mut draw_target);
+                    draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+                }
+            } else if NEEDS_REFRESH.swap(false, Ordering::Relaxed) {
                 gui.draw_init(&mut draw_target);
                 draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+            } else if !has_event() {
+                // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
+                // WFEs so we don't immediately wake up.
+                unsafe { asm!("wfe", "wfe") };
             }
         }
     }
