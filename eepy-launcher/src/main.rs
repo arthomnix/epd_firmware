@@ -1,9 +1,12 @@
 #![no_std]
 #![no_main]
 
+mod serial;
+
 extern crate panic_halt;
 
 use core::arch::asm;
+use core::sync::atomic::Ordering;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
@@ -17,11 +20,12 @@ use eepy_sys::exec::exec;
 use eepy_sys::image::RefreshBlockMode;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled, Event, TouchEventType};
 use eepy_sys::header::{ProgramSlotHeader, Programs};
-use eepy_sys::misc::{get_serial, info, trace};
+use eepy_sys::misc::{get_serial};
 use eepy_sys::usb;
 use eepy_sys::usb::UsbBus;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
+use crate::serial::NEEDS_REFRESH_PROGRAMS;
 
 #[link_section = ".header"]
 #[used]
@@ -31,6 +35,7 @@ static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
     entry,
 );
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum Page {
     MainPage,
     ScratchpadPage,
@@ -42,8 +47,7 @@ struct MainPage {
 }
 
 impl MainPage {
-    fn new() -> Self {
-        let mut buttons = [const { None }; 32];
+    fn refresh_buttons(&mut self) {
         let mut programs = Programs::new();
 
         for y in 0..16 {
@@ -58,15 +62,19 @@ impl MainPage {
                         false,
                     );
                     let slot_num = unsafe { (&*prog).slot() };
-                    buttons[bi] = Some((button, slot_num))
+                    self.app_buttons[bi] = Some((button, slot_num))
                 }
             }
         }
+    }
 
-        Self {
+    fn new() -> Self {
+        let mut res = Self {
             scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad", true),
-            app_buttons: buttons,
-        }
+            app_buttons: [const { None }; 32],
+        };
+        res.refresh_buttons();
+        res
     }
 }
 
@@ -97,7 +105,7 @@ impl Gui for MainPage {
                 let response = button.tick(draw_target, ev);
 
                 if response.clicked {
-                    cleanup_usb();
+                    unsafe { cleanup_usb() };
                     exec(*s);
                 }
 
@@ -290,29 +298,7 @@ static mut USB: Option<UsbBusAllocator<UsbBus>> = None;
 static mut USB_DEVICE: Option<UsbDevice<UsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<UsbBus>> = None;
 
-#[allow(static_mut_refs)]
-pub extern "C" fn testing_usb_handler() {
-    let dev: &mut UsbDevice<UsbBus> = unsafe { USB_DEVICE.as_mut().unwrap() };
-    let serial: &mut SerialPort<UsbBus> = unsafe { USB_SERIAL.as_mut().unwrap() };
-
-    trace("Launcher USB handler");
-
-    if dev.poll(&mut [serial]) {
-        let mut buf = [0u8; 64];
-        match serial.read(&mut buf) {
-            Err(_) => {},
-            Ok(0) => {},
-            Ok(_) => {
-                let s = core::str::from_utf8(&buf);
-                if let Ok(s) = s {
-                    info(s);
-                }
-            }
-        }
-    }
-}
-
-fn cleanup_usb() {
+unsafe fn cleanup_usb() {
     #[allow(static_mut_refs)]
     unsafe {
         let _ = USB.take();
@@ -344,7 +330,7 @@ pub extern "C" fn entry() {
         USB_DEVICE = Some(usb_dev);
     }
 
-    usb::set_handler(testing_usb_handler);
+    usb::set_handler(serial::usb_handler);
 
     let mut draw_target = EpdDrawTarget::new();
     set_touch_enabled(true);
@@ -361,6 +347,14 @@ pub extern "C" fn entry() {
             // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
             // WFEs so we don't immediately wake up.
             unsafe { asm!("wfe", "wfe") };
+        }
+
+        if NEEDS_REFRESH_PROGRAMS.swap(false, Ordering::Relaxed) {
+            gui.main_page.refresh_buttons();
+            if gui.current_page == Page::MainPage {
+                gui.draw_init(&mut draw_target);
+                draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+            }
         }
     }
 }

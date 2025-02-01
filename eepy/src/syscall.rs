@@ -33,6 +33,7 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
         Ok(SyscallNumber::Usb) => crate::usb::handle_usb(stack_values),
         Ok(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
         Ok(SyscallNumber::CriticalSection) => cs::handle_cs(stack_values),
+        Ok(SyscallNumber::Flash) => flash::handle_flash(stack_values),
         Err(_) => panic!("illegal syscall"),
     }
 }
@@ -234,5 +235,115 @@ mod cs {
             }
         }
         core::sync::atomic::compiler_fence(Ordering::SeqCst);
+    }
+}
+
+mod flash {
+    use core::sync::atomic::Ordering;
+    use eepy_sys::flash::FlashSyscall;
+    use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
+    use fw16_epd_bsp::pac;
+    use crate::exception::StackFrame;
+    use crate::{FLASHING, FLASHING_ACK};
+
+    pub(super) fn handle_flash(stack_values: &mut StackFrame) {
+        match FlashSyscall::try_from(stack_values.r0) {
+            Ok(FlashSyscall::Erase) => handle_erase(stack_values),
+            Ok(FlashSyscall::Program) => handle_program(stack_values),
+            Ok(FlashSyscall::EraseAndProgram) => handle_erase_and_program(stack_values),
+            Ok(FlashSyscall::InvalidateCache) => handle_invalidate_cache(),
+            Err(_) => panic!("illegal syscall"),
+        }
+    }
+
+    fn assert_permissions(stack_values: &mut StackFrame, start: u32, len: u32) {
+        let slot_n = (stack_values.pc as usize - XIP_BASE as usize) / SLOT_SIZE;
+        let start_addr_xip = start as usize + XIP_BASE as usize;
+        let end_addr_xip = start_addr_xip + len as usize;
+
+        if slot_n == 0 {
+            // Slot 0 (launcher) can write any flash except kernel
+            if start_addr_xip < (XIP_BASE as usize + 128 * 1024) {
+                panic!("illegal flash write");
+            }
+            return;
+        }
+
+        let slot_start = XIP_BASE as usize + (slot_n * SLOT_SIZE);
+        let slot_end = slot_start + SLOT_SIZE;
+        if start_addr_xip < slot_start || end_addr_xip > slot_end {
+            panic!("illegal flash write");
+        }
+    }
+
+    fn begin() {
+        // Make sure core1 is running code from RAM with interrupts disabled
+        FLASHING.store(true, Ordering::Relaxed);
+        cortex_m::asm::sev();
+        // Wait until core1 has acknowledged that it is now in RAM code
+        while !FLASHING_ACK.load(Ordering::Relaxed) {}
+        // Disable interrupts on this core
+        cortex_m::interrupt::disable();
+    }
+
+    fn end() {
+        // Enable interrupts
+        unsafe { cortex_m::interrupt::enable() }
+        // Wake up core1
+        FLASHING.store(false, Ordering::Relaxed);
+        cortex_m::asm::sev();
+    }
+
+    fn handle_erase(stack_values: &mut StackFrame) {
+        let start_addr = stack_values.r1 as u32;
+        let len = stack_values.r2 as u32;
+        assert_permissions(stack_values, start_addr, len);
+        if start_addr % 4096 != 0 || len % 4096 != 0 {
+            panic!("unaligned flash erase");
+        }
+
+        begin();
+        unsafe {
+            rp2040_flash::flash::flash_range_erase(start_addr, len, true);
+        }
+        end();
+    }
+
+    fn handle_program(stack_values: &mut StackFrame) {
+        let start_addr = stack_values.r1 as u32;
+        let data = unsafe { core::slice::from_raw_parts(stack_values.r3 as *const u8, stack_values.r2) };
+        assert_permissions(stack_values, start_addr, data.len() as u32);
+        if start_addr % 256 != 0 || data.len() % 256 != 0 {
+            panic!("unaligned flash program");
+        }
+
+        begin();
+        unsafe {
+            rp2040_flash::flash::flash_range_program(start_addr, data, true);
+        }
+        end();
+    }
+
+    fn handle_erase_and_program(stack_values: &mut StackFrame) {
+        let start_addr = stack_values.r1 as u32;
+        let data = unsafe { core::slice::from_raw_parts(stack_values.r3 as *const u8, stack_values.r2) };
+        assert_permissions(stack_values, start_addr, data.len() as u32);
+        if start_addr % 4096 != 0 || data.len() % 4096 != 0 {
+            panic!("unaligned flash erase");
+        }
+
+        begin();
+        unsafe {
+            rp2040_flash::flash::flash_range_erase_and_program(start_addr, data, true);
+        }
+        end();
+    }
+
+    fn handle_invalidate_cache() {
+        unsafe {
+            let xip = pac::Peripherals::steal().XIP_CTRL;
+            xip.flush().write(|w| w.flush().set_bit());
+            xip.flush().read();
+        };
     }
 }

@@ -8,6 +8,7 @@ pub mod input;
 pub mod usb;
 pub mod exec;
 pub mod critical_section;
+pub mod flash;
 
 #[cfg(feature = "critical-section-impl")]
 mod critical_section_impl;

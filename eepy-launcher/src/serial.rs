@@ -1,14 +1,17 @@
 use core::sync::atomic::Ordering;
-use crate::{interrupt, FLASHING, FLASHING_ACK};
-use defmt::{debug, trace};
+use core::fmt::Write;
+use portable_atomic::AtomicBool;
+use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
-use fw16_epd_bsp::hal::usb::UsbBus;
-use fw16_epd_bsp::pac;
-use eepy_sys::header::ProgramSlotHeader;
 use eepy_serial::{Response, SerialCommand};
+use eepy_sys::flash::{erase_and_program, invalidate_cache};
 use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
-use tp370pgh01::IMAGE_BYTES;
-#[derive(Copy, Clone, Debug, defmt::Format)]
+use eepy_sys::IMAGE_BYTES;
+use eepy_sys::misc::{debug, trace};
+use eepy_sys::usb::UsbBus;
+use crate::{USB_DEVICE, USB_SERIAL};
+
+#[derive(Copy, Clone, Debug)]
 enum SerialState {
     ReadyForCommand,
 
@@ -25,66 +28,38 @@ enum SerialState {
     },
 }
 
+unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) {
+    erase_and_program((slot as u32) * 512 * 1024 + (page as u32) * 4096, buf);
+}
+
 fn write_all(serial: &mut SerialPort<UsbBus>, mut buf: &[u8]) {
     while !buf.is_empty() {
         let _ = serial.write(buf).map(|len| buf = &buf[len..]);
     }
 }
 
-/// Safety:
-///
-/// This function takes care of the main safety requirements of flashing, but the
-/// caller must ensure that the `slot` and `page` parameters are valid and do
-/// not produce an address outside the flash's range. Additionally, do not write
-/// to slot 0 as this contains the firmware.
-unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) {
-    debug!("Begin write slot {} page {}", slot, page);
+pub(crate) static NEEDS_REFRESH_PROGRAMS: AtomicBool = AtomicBool::new(false);
 
-    // Make sure core1 is running code from RAM with interrupts disabled
-    FLASHING.store(true, Ordering::Relaxed);
-    cortex_m::asm::sev();
-    // Wait until core1 has acknowledged that it is now in RAM code
-    while !FLASHING_ACK.load(Ordering::Relaxed) {}
-    // Disable interrupts on this core
-    cortex_m::interrupt::disable();
+pub(crate) extern "C" fn usb_handler() {
+    trace("USB handler");
 
-    unsafe {
-        rp2040_flash::flash::flash_range_erase_and_program(
-            (slot as u32) * 512 * 1024 + (page as u32) * 4096,
-            buf,
-            true
-        );
-    }
-
-    // Enable interrupts
-    unsafe { cortex_m::interrupt::enable() }
-    // Wake up core1
-    FLASHING.store(false, Ordering::Relaxed);
-    cortex_m::asm::sev();
-
-    debug!("End write slot {} page {}", slot, page);
-}
-
-/*
-#[interrupt]
-fn USBCTRL_IRQ() {
     static mut STATE: SerialState = SerialState::ReadyForCommand;
+    #[allow(static_mut_refs)]
+    let state = unsafe { &mut STATE };
+
+    #[allow(static_mut_refs)]
+    let dev: &mut UsbDevice<UsbBus> = unsafe { USB_DEVICE.as_mut().unwrap() };
+    #[allow(static_mut_refs)]
+    let serial: &mut SerialPort<UsbBus> = unsafe { USB_SERIAL.as_mut().unwrap() };
 
     // Receive buffer. Size equal to IMAGE_BYTES so it can store an entire frame; also used for
     // receiving flash applications.
     static mut BUF: [u8; IMAGE_BYTES] = [0; IMAGE_BYTES];
-
-    trace!("USBCTRL_IRQ");
-
-    // Safety: These are only accessed within this interrupt handler, or in main() before the
-    // interrupt is enabled.
     #[allow(static_mut_refs)]
-    let usb_dev = unsafe { GLOBAL_USB_DEVICE.as_mut().unwrap() };
-    #[allow(static_mut_refs)]
-    let serial = unsafe { GLOBAL_USB_SERIAL.as_mut().unwrap() };
+    let buf = unsafe { &mut BUF };
 
-    if usb_dev.poll(&mut [serial]) {
-        match STATE {
+    if dev.poll(&mut [serial]) {
+        match state {
             SerialState::ReadyForCommand => {
                 let mut cmd_buf = [0u8];
                 if let Ok(count) = serial.read(&mut cmd_buf) {
@@ -93,9 +68,9 @@ fn USBCTRL_IRQ() {
                     }
 
                     match SerialCommand::try_from(cmd_buf[0]) {
-                        Ok(SerialCommand::RefreshNormal) => *STATE = SerialState::ReceivingImage { fast_refresh: false, index: 0 },
-                        Ok(SerialCommand::RefreshFast) => *STATE = SerialState::ReceivingImage { fast_refresh: true, index: 0 },
-                        Ok(SerialCommand::UploadProgram) => *STATE = SerialState::FlashingProgram { index: 0, page: 0, num_pages: None, remainder: None },
+                        Ok(SerialCommand::RefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, index: 0 },
+                        Ok(SerialCommand::RefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, index: 0 },
+                        Ok(SerialCommand::UploadProgram) => *state = SerialState::FlashingProgram { index: 0, page: 0, num_pages: None, remainder: None },
                         Ok(_) => write_all(serial, &[Response::UnknownCommand as u8]),
                         Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
                     }
@@ -103,32 +78,30 @@ fn USBCTRL_IRQ() {
             }
 
             SerialState::ReceivingImage { fast_refresh, index } => {
-                if let Ok(count) = serial.read(&mut BUF[*index..]) {
+                if let Ok(count) = serial.read(&mut buf[*index..]) {
                     *index += count;
                     if *index == IMAGE_BYTES {
-                        write_image(BUF);
+                        write_image(buf);
                         refresh(*fast_refresh, RefreshBlockMode::NonBlocking);
                         write_all(serial, &[Response::Ack as u8]);
-                        *STATE = SerialState::ReadyForCommand;
+                        *state = SerialState::ReadyForCommand;
                     }
                 }
             }
 
             SerialState::FlashingProgram { index, page, num_pages, remainder } => {
-                debug!("Flashing program - page {}", *page);
                 // Write page 0 last - this is the header, so we only want to write it once everything
                 // else is written successfully
                 // Keep page 0 in the first 4096 bytes of BUF for the end
-                debug!("{} {} {} {}", index, page, num_pages, remainder);
                 if *page == 0 {
-                    if let Ok(count) = serial.read(&mut BUF[*index..4096]) {
+                    debug("receiving page 0");
+                    if let Ok(count) = serial.read(&mut buf[*index..4096]) {
                         *index += count;
 
                         if num_pages.is_none() && *index >= 12 {
                             let mut b = [0u8; 4];
-                            b.copy_from_slice(&BUF[8..12]);
+                            b.copy_from_slice(&buf[8..12]);
                             let num_bytes = usize::from_le_bytes(b);
-                            debug!("Program is {} bytes ({} pages) long", num_bytes, num_bytes.div_ceil(4096));
                             *num_pages = Some(num_bytes.div_ceil(4096));
                             *remainder = Some(num_bytes % 4096);
                         }
@@ -139,7 +112,11 @@ fn USBCTRL_IRQ() {
                         }
                     }
                 } else {
-                    if let Ok(count) = serial.read(&mut BUF[(4096 + *index)..8192]) {
+                    if let Ok(count) = serial.read(&mut buf[(4096 + *index)..8192]) {
+                        let mut message = heapless::String::<32>::new();
+                        write!(message, "receiving page {page}").unwrap();
+                        debug(&message);
+
                         *index += count;
 
                         let num_pages = num_pages.unwrap();
@@ -150,27 +127,22 @@ fn USBCTRL_IRQ() {
                             // Actually write the flash page
                             // TODO: get next slot instead of always using slot 1
                             // TODO: wear levelling
-                            unsafe { write_flash(&BUF[4096..8192], 1, *page) };
+                            unsafe { write_flash(&buf[4096..8192], 1, *page) };
 
                             *page += 1;
                             // If this is the last page, also flash the first page which we didn't
                             // do at the start
                             if *page == num_pages {
-                                unsafe { write_flash(&BUF[0..4096], 1, 0) };
+                                unsafe { write_flash(&buf[0..4096], 1, 0) };
 
                                 // Invalidate the XIP cache, in case something from the flash area
                                 // we just wrote is in there
-                                unsafe {
-                                    // FIXME: steal
-                                    let xip = pac::Peripherals::steal().XIP_CTRL;
-                                    xip.flush().write(|w| w.flush().set_bit());
-                                    xip.flush().read();
-                                };
+                                unsafe { invalidate_cache() }
 
-                                let program = unsafe { &*(0x10080000 as *const ProgramSlotHeader) };
-                                debug!("{} {}", program.name().unwrap(), program.version().unwrap());
+                                NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);
+                                debug("Finished writing program");
 
-                                *STATE = SerialState::ReadyForCommand;
+                                *state = SerialState::ReadyForCommand;
                             }
                         }
                     }
@@ -179,4 +151,3 @@ fn USBCTRL_IRQ() {
         }
     }
 }
- */

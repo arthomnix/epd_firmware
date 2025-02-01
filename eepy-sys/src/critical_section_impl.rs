@@ -7,12 +7,12 @@ critical_section::set_impl!(EepyCs);
 
 unsafe impl critical_section::Impl for EepyCs {
     unsafe fn acquire() -> bool {
-        let mut state: bool;
+        let mut state: usize;
         syscall!(
             SyscallNumber::CriticalSection,
             out state in CsSyscall::Acquire,
         );
-        state
+        state != 0
     }
 
     unsafe fn release(state: bool) {

@@ -8,6 +8,7 @@ pub enum SyscallNumber {
     Usb = 3,
     Exec = 4,
     CriticalSection = 5,
+    Flash = 6,
 }
 
 impl TryFrom<u8> for SyscallNumber {
@@ -21,6 +22,7 @@ impl TryFrom<u8> for SyscallNumber {
             x if x == SyscallNumber::Usb as u8 => Ok(SyscallNumber::Usb),
             x if x == SyscallNumber::Exec as u8 => Ok(SyscallNumber::Exec),
             x if x == SyscallNumber::CriticalSection as u8 => Ok(SyscallNumber::CriticalSection),
+            x if x == SyscallNumber::Flash as u8 => Ok(SyscallNumber::Flash),
             _ => Err(()),
         }
     }

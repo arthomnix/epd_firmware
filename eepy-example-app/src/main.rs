@@ -32,8 +32,11 @@ pub extern "C" fn entry() {
 
     let mut draw_target = EpdDrawTarget::new();
 
+    let text = Text::new("Example App", Point::new(10, 20), DEFAULT_TEXT_STYLE);
     let mut button = Button::with_default_style_auto_sized(Point::new(10, 40), "Click me", true);
     let mut exit_button = Button::with_default_style_auto_sized(Point::new(10, 386), "Exit", false);
+
+    text.draw(&mut draw_target).unwrap();
     button.draw_init(&mut draw_target);
     exit_button.draw_init(&mut draw_target);
     draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
@@ -51,6 +54,7 @@ pub extern "C" fn entry() {
             let response = button.tick(&mut draw_target, ev);
             if response.clicked {
                 draw_target.clear(BinaryColor::Off).unwrap();
+                text.draw(&mut draw_target).unwrap();
                 button.draw_init(&mut draw_target);
                 exit_button.draw_init(&mut draw_target);
 
