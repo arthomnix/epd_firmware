@@ -1,9 +1,7 @@
 .global USBCTRL_IRQ
-//.global SW5_IRQ
 
     .thumb_func
 USBCTRL_IRQ:
-//SW5_IRQ:
     ldr     r2, =handle_usb_irq
     movs    r0, #4
     mov     r1, lr
