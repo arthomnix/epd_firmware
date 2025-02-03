@@ -26,15 +26,15 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
 
     trace!("syscall: sp={} imm={:x} {}", sp, syscall_num, stack_values);
 
-    match SyscallNumber::try_from(syscall_num) {
-        Ok(SyscallNumber::Misc) => misc::handle_misc(stack_values),
-        Ok(SyscallNumber::Image) => image::handle_image(stack_values),
-        Ok(SyscallNumber::Input) => input::handle_input(stack_values),
-        Ok(SyscallNumber::Usb) => crate::usb::handle_usb(stack_values),
-        Ok(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
-        Ok(SyscallNumber::CriticalSection) => cs::handle_cs(stack_values),
-        Ok(SyscallNumber::Flash) => flash::handle_flash(stack_values),
-        Err(_) => panic!("illegal syscall"),
+    match SyscallNumber::from_repr(syscall_num) {
+        Some(SyscallNumber::Misc) => misc::handle_misc(stack_values),
+        Some(SyscallNumber::Image) => image::handle_image(stack_values),
+        Some(SyscallNumber::Input) => input::handle_input(stack_values),
+        Some(SyscallNumber::Usb) => crate::usb::handle_usb(stack_values),
+        Some(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
+        Some(SyscallNumber::CriticalSection) => cs::handle_cs(stack_values),
+        Some(SyscallNumber::Flash) => flash::handle_flash(stack_values),
+        None => panic!("illegal syscall"),
     }
 }
 
@@ -97,10 +97,10 @@ mod misc {
     use super::StackFrame;
 
     pub(super) fn handle_misc(stack_values: &mut StackFrame) {
-        match MiscSyscall::try_from(stack_values.r0) {
-            Ok(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
-            Ok(MiscSyscall::LogMessage) => handle_log_message(stack_values),
-            Err(_) => panic!("illegal syscall"),
+        match MiscSyscall::from_repr(stack_values.r0) {
+            Some(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
+            Some(MiscSyscall::LogMessage) => handle_log_message(stack_values),
+            None => panic!("illegal syscall"),
         }
     }
 
@@ -112,7 +112,7 @@ mod misc {
     }
 
     fn handle_log_message(stack_values: &mut StackFrame) {
-        let log_level: LogLevel = stack_values.r1.try_into().expect("invalid log level");
+        let log_level = LogLevel::from_repr(stack_values.r1).expect("invalid log level");
         let len = stack_values.r2;
         let ptr = stack_values.r3 as *const u8;
         let s = unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(ptr, len)) };
@@ -136,10 +136,10 @@ mod image {
     use super::StackFrame;
 
     pub(super) fn handle_image(stack_values: &mut StackFrame) {
-        match ImageSyscall::try_from(stack_values.r0) {
-            Ok(ImageSyscall::WriteImage) => handle_write_image(stack_values),
-            Ok(ImageSyscall::Refresh) => handle_refresh(stack_values),
-            Err(_) => panic!("illegal syscall"),
+        match ImageSyscall::from_repr(stack_values.r0) {
+            Some(ImageSyscall::WriteImage) => handle_write_image(stack_values),
+            Some(ImageSyscall::Refresh) => handle_refresh(stack_values),
+            None => panic!("illegal syscall"),
         }
     }
 
@@ -150,7 +150,7 @@ mod image {
 
     fn handle_refresh(stack_values: &mut StackFrame) {
         let fast_refresh = stack_values.r1 != 0;
-        let blocking_mode = RefreshBlockMode::try_from(stack_values.r2).expect("illegal refresh blocking mode");
+        let blocking_mode = RefreshBlockMode::from_repr(stack_values.r2).expect("illegal refresh blocking mode");
 
         DO_REFRESH.store(true, Ordering::Relaxed);
         FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
@@ -175,11 +175,11 @@ mod input {
     use super::StackFrame;
 
     pub(super) fn handle_input(stack_values: &mut StackFrame) {
-        match InputSyscall::try_from(stack_values.r0) {
-            Ok(InputSyscall::NextEvent) => handle_next_event(stack_values),
-            Ok(InputSyscall::SetTouchEnabled) => handle_set_touch_enabled(stack_values),
-            Ok(InputSyscall::HasEvent) => handle_has_event(stack_values),
-            Err(_) => panic!("illegal syscall"),
+        match InputSyscall::from_repr(stack_values.r0) {
+            Some(InputSyscall::NextEvent) => handle_next_event(stack_values),
+            Some(InputSyscall::SetTouchEnabled) => handle_set_touch_enabled(stack_values),
+            Some(InputSyscall::HasEvent) => handle_has_event(stack_values),
+            None => panic!("illegal syscall"),
         }
     }
 
@@ -211,10 +211,10 @@ mod cs {
     use crate::exception::StackFrame;
 
     pub(super) fn handle_cs(stack_values: &mut StackFrame) {
-        match CsSyscall::try_from(stack_values.r0) {
-            Ok(CsSyscall::Acquire) => handle_acquire(stack_values),
-            Ok(CsSyscall::Release) => handle_release(stack_values),
-            Err(_) => panic!("illegal syscall"),
+        match CsSyscall::from_repr(stack_values.r0) {
+            Some(CsSyscall::Acquire) => handle_acquire(stack_values),
+            Some(CsSyscall::Release) => handle_release(stack_values),
+            None => panic!("illegal syscall"),
         }
     }
 
@@ -249,12 +249,12 @@ mod flash {
     use crate::{FLASHING, FLASHING_ACK};
 
     pub(super) fn handle_flash(stack_values: &mut StackFrame) {
-        match FlashSyscall::try_from(stack_values.r0) {
-            Ok(FlashSyscall::Erase) => handle_erase(stack_values),
-            Ok(FlashSyscall::Program) => handle_program(stack_values),
-            Ok(FlashSyscall::EraseAndProgram) => handle_erase_and_program(stack_values),
-            Ok(FlashSyscall::InvalidateCache) => handle_invalidate_cache(),
-            Err(_) => panic!("illegal syscall"),
+        match FlashSyscall::from_repr(stack_values.r0) {
+            Some(FlashSyscall::Erase) => handle_erase(stack_values),
+            Some(FlashSyscall::Program) => handle_program(stack_values),
+            Some(FlashSyscall::EraseAndProgram) => handle_erase_and_program(stack_values),
+            Some(FlashSyscall::InvalidateCache) => handle_invalidate_cache(),
+            None => panic!("illegal syscall"),
         }
     }
 

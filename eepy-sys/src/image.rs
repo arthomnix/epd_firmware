@@ -3,45 +3,20 @@ use crate::syscall;
 use crate::syscall::SyscallNumber;
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ImageSyscall {
     WriteImage = 0,
     Refresh = 1,
 }
 
-impl TryFrom<usize> for ImageSyscall {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == ImageSyscall::WriteImage as usize => Ok(ImageSyscall::WriteImage),
-            x if x == ImageSyscall::Refresh as usize => Ok(ImageSyscall::Refresh),
-            _ => Err(()),
-        }
-    }
-}
-
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RefreshBlockMode {
-    NonBlocking,
-    BlockAcknowledge,
-    BlockFinish,
-}
-
-impl TryFrom<usize> for RefreshBlockMode {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == RefreshBlockMode::NonBlocking as usize => Ok(RefreshBlockMode::NonBlocking),
-            x if x == RefreshBlockMode::BlockAcknowledge as usize => Ok(RefreshBlockMode::BlockAcknowledge),
-            x if x == RefreshBlockMode::BlockFinish as usize => Ok(RefreshBlockMode::BlockFinish),
-            _ => Err(()),
-        }
-    }
+    NonBlocking = 0,
+    BlockAcknowledge = 1,
+    BlockFinish = 2,
 }
 
 pub fn write_image(image: &[u8; IMAGE_BYTES]) {

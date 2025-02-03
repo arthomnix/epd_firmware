@@ -7,7 +7,7 @@ use crate::{syscall, SafeOption, SafeResult};
 use crate::syscall::SyscallNumber;
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbSyscall {
     UsbRet = 0,
@@ -24,31 +24,6 @@ pub enum UsbSyscall {
     SetStalled = 11,
     IsStalled = 12,
     Poll = 13,
-}
-
-impl TryFrom<usize> for UsbSyscall {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == UsbSyscall::UsbRet as usize => Ok(UsbSyscall::UsbRet),
-            x if x == UsbSyscall::SetHandler as usize => Ok(UsbSyscall::SetHandler),
-            x if x == UsbSyscall::ClearHandler as usize => Ok(UsbSyscall::ClearHandler),
-            x if x == UsbSyscall::Init as usize => Ok(UsbSyscall::Init),
-            x if x == UsbSyscall::Uninit as usize => Ok(UsbSyscall::Uninit),
-            x if x == UsbSyscall::AllocEp as usize => Ok(UsbSyscall::AllocEp),
-            x if x == UsbSyscall::Enable as usize => Ok(UsbSyscall::Enable),
-            x if x == UsbSyscall::Reset as usize => Ok(UsbSyscall::Reset),
-            x if x == UsbSyscall::SetDeviceAddr as usize => Ok(UsbSyscall::SetDeviceAddr),
-            x if x == UsbSyscall::Write as usize => Ok(UsbSyscall::Write),
-            x if x == UsbSyscall::Read as usize => Ok(UsbSyscall::Read),
-            x if x == UsbSyscall::SetStalled as usize => Ok(UsbSyscall::SetStalled),
-            x if x == UsbSyscall::IsStalled as usize => Ok(UsbSyscall::IsStalled),
-            x if x == UsbSyscall::Poll as usize => Ok(UsbSyscall::Poll),
-
-            _ => Err(()),
-        }
-    }
 }
 
 pub fn set_handler(f: extern "C" fn()) {

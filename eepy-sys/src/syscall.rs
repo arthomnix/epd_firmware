@@ -1,5 +1,5 @@
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SyscallNumber {
     Misc = 0,
@@ -9,23 +9,6 @@ pub enum SyscallNumber {
     Exec = 4,
     CriticalSection = 5,
     Flash = 6,
-}
-
-impl TryFrom<u8> for SyscallNumber {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            x if x == SyscallNumber::Misc as u8 => Ok(SyscallNumber::Misc),
-            x if x == SyscallNumber::Image as u8 => Ok(SyscallNumber::Image),
-            x if x == SyscallNumber::Input as u8 => Ok(SyscallNumber::Input),
-            x if x == SyscallNumber::Usb as u8 => Ok(SyscallNumber::Usb),
-            x if x == SyscallNumber::Exec as u8 => Ok(SyscallNumber::Exec),
-            x if x == SyscallNumber::CriticalSection as u8 => Ok(SyscallNumber::CriticalSection),
-            x if x == SyscallNumber::Flash as u8 => Ok(SyscallNumber::Flash),
-            _ => Err(()),
-        }
-    }
 }
 
 /// Perform a raw system call.
@@ -66,5 +49,5 @@ macro_rules! syscall {
 #[macro_export]
 #[cfg(not(all(target_os = "none", target_arch = "arm")))]
 macro_rules! syscall {
-    ( $( $_foo:tt )* ) => { panic!("Cannot use eepyOS syscalls on non-eepyOS platforms") };
+    ( $( $_foo:tt )* ) => { compile_error!("Cannot use eepyOS syscalls on non-eepyOS platforms") };
 }

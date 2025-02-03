@@ -4,25 +4,12 @@ use crate::input_common::Event;
 use crate::syscall::SyscallNumber;
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputSyscall {
     NextEvent = 0,
     SetTouchEnabled = 1,
     HasEvent = 2,
-}
-
-impl TryFrom<usize> for InputSyscall {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == InputSyscall::NextEvent as usize => Ok(InputSyscall::NextEvent),
-            x if x == InputSyscall::SetTouchEnabled as usize => Ok(InputSyscall::SetTouchEnabled),
-            x if x == InputSyscall::HasEvent as usize => Ok(InputSyscall::HasEvent),
-            _ => Err(()),
-        }
-    }
 }
 
 pub fn next_event() -> Option<Event> {

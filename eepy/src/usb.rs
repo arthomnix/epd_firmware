@@ -141,22 +141,22 @@ extern "C" fn handle_usb_irq(sp: *mut StackFrame, using_psp: bool) {
 }
 
 pub(crate) fn handle_usb(stack_values: &mut StackFrame) {
-    match UsbSyscall::try_from(stack_values.r0) {
-        Ok(UsbSyscall::UsbRet) => handle_usb_ret(stack_values),
-        Ok(UsbSyscall::SetHandler) => handle_set_handler(stack_values),
-        Ok(UsbSyscall::ClearHandler) => handle_clear_handler(),
-        Ok(UsbSyscall::Init) => handle_init(),
-        Ok(UsbSyscall::Uninit) => handle_uninit(),
-        Ok(UsbSyscall::AllocEp) => handle_alloc_ep(stack_values),
-        Ok(UsbSyscall::Enable) => handle_enable(),
-        Ok(UsbSyscall::Reset) => handle_reset(),
-        Ok(UsbSyscall::SetDeviceAddr) => handle_set_device_addr(stack_values),
-        Ok(UsbSyscall::Write) => handle_write(stack_values),
-        Ok(UsbSyscall::Read) => handle_read(stack_values),
-        Ok(UsbSyscall::SetStalled) => handle_set_stalled(stack_values),
-        Ok(UsbSyscall::IsStalled) => handle_is_stalled(stack_values),
-        Ok(UsbSyscall::Poll) => handle_poll(stack_values),
-        Err(_) => panic!("illegal syscall"),
+    match UsbSyscall::from_repr(stack_values.r0) {
+        Some(UsbSyscall::UsbRet) => handle_usb_ret(stack_values),
+        Some(UsbSyscall::SetHandler) => handle_set_handler(stack_values),
+        Some(UsbSyscall::ClearHandler) => handle_clear_handler(),
+        Some(UsbSyscall::Init) => handle_init(),
+        Some(UsbSyscall::Uninit) => handle_uninit(),
+        Some(UsbSyscall::AllocEp) => handle_alloc_ep(stack_values),
+        Some(UsbSyscall::Enable) => handle_enable(),
+        Some(UsbSyscall::Reset) => handle_reset(),
+        Some(UsbSyscall::SetDeviceAddr) => handle_set_device_addr(stack_values),
+        Some(UsbSyscall::Write) => handle_write(stack_values),
+        Some(UsbSyscall::Read) => handle_read(stack_values),
+        Some(UsbSyscall::SetStalled) => handle_set_stalled(stack_values),
+        Some(UsbSyscall::IsStalled) => handle_is_stalled(stack_values),
+        Some(UsbSyscall::Poll) => handle_poll(stack_values),
+        None => panic!("illegal syscall"),
     }
 }
 

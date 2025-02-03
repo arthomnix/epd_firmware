@@ -2,27 +2,13 @@ use crate::syscall;
 use crate::syscall::SyscallNumber;
 
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashSyscall {
     Erase = 0,
     Program = 1,
     EraseAndProgram = 2,
     InvalidateCache = 3,
-}
-
-impl TryFrom<usize> for FlashSyscall {
-    type Error = ();
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            x if x == FlashSyscall::Erase as usize => Ok(FlashSyscall::Erase),
-            x if x == FlashSyscall::Program as usize => Ok(FlashSyscall::Program),
-            x if x == FlashSyscall::EraseAndProgram as usize => Ok(FlashSyscall::EraseAndProgram),
-            x if x == FlashSyscall::InvalidateCache as usize => Ok(FlashSyscall::InvalidateCache),
-            _ => Err(()),
-        }
-    }
 }
 
 pub unsafe fn erase(start_addr: u32, len: u32) {
