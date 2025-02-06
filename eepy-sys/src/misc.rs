@@ -11,6 +11,7 @@ use once_cell::sync::OnceCell;
 pub enum MiscSyscall {
     GetSerial = 0,
     LogMessage = 1,
+    GetTimeMicros = 2,
 }
 
 #[repr(usize)]
@@ -87,4 +88,19 @@ pub fn warn(message: &str) {
 
 pub fn error(message: &str) {
     log(message, LogLevel::Error);
+}
+
+pub fn get_time_micros() -> u64 {
+    let mut low_word: u32;
+    let mut high_word: u32;
+
+    unsafe {
+        syscall!(
+            SyscallNumber::Misc,
+            out high_word in MiscSyscall::GetTimeMicros,
+            out low_word,
+        )
+    }
+
+    ((high_word as u64) << 32) | low_word as u64
 }

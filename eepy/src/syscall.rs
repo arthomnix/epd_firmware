@@ -93,13 +93,15 @@ mod misc {
     use defmt::{debug, error, info, trace, warn};
     use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
     use eepy_sys::misc::{LogLevel, MiscSyscall};
-    use crate::SERIAL_NUMBER;
+    use fw16_epd_bsp::pac::Peripherals;
+    use crate::{SERIAL_NUMBER};
     use super::StackFrame;
 
     pub(super) fn handle_misc(stack_values: &mut StackFrame) {
         match MiscSyscall::from_repr(stack_values.r0) {
             Some(MiscSyscall::GetSerial) => handle_get_serial(stack_values),
             Some(MiscSyscall::LogMessage) => handle_log_message(stack_values),
+            Some(MiscSyscall::GetTimeMicros) => handle_get_time_micros(stack_values),
             None => panic!("illegal syscall"),
         }
     }
@@ -125,6 +127,12 @@ mod misc {
             LogLevel::Warn => warn!("[PROGRAM:{}] {}", slot_n, s),
             LogLevel::Error => error!("[PROGRAM:{}] {}", slot_n, s),
         }
+    }
+
+    fn handle_get_time_micros(stack_values: &mut StackFrame) {
+        let timer = unsafe { Peripherals::steal() }.TIMER;
+        stack_values.r1 = timer.timelr().read().bits() as usize;
+        stack_values.r0 = timer.timehr().read().bits() as usize;
     }
 }
 
