@@ -4,7 +4,7 @@ use portable_atomic::{AtomicBool, AtomicU8};
 use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
 use eepy_serial::{Response, SerialCommand};
-use eepy_sys::flash::{erase_and_program, invalidate_cache};
+use eepy_sys::flash::erase_and_program;
 use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
 use eepy_sys::IMAGE_BYTES;
 use eepy_sys::input::{next_event, set_touch_enabled};
@@ -197,12 +197,6 @@ pub(crate) extern "C" fn usb_handler() {
                             if *page == num_pages {
                                 debug("finalising");
                                 unsafe { write_flash(&buf[0..4096], 1, 0) };
-
-                                debug("invalidating XIP cache");
-                                // Invalidate the XIP cache, in case something from the flash area
-                                // we just wrote is in there
-                                unsafe { invalidate_cache() };
-                                debug("invalidated XIP cache");
 
                                 NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);
                                 info("Finished writing program");

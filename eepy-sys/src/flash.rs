@@ -8,7 +8,6 @@ pub enum FlashSyscall {
     Erase = 0,
     Program = 1,
     EraseAndProgram = 2,
-    InvalidateCache = 3,
 }
 
 pub unsafe fn erase(start_addr: u32, len: u32) {
@@ -37,12 +36,5 @@ pub unsafe fn erase_and_program(start_addr: u32, data: &[u8]) {
         in start_addr,
         in data.len(),
         in data.as_ptr(),
-    );
-}
-
-pub unsafe fn invalidate_cache() {
-    syscall!(
-        SyscallNumber::Flash,
-        in FlashSyscall::InvalidateCache,
     );
 }

@@ -132,9 +132,12 @@ fn main() -> ! {
         // Region 3: Flash - start: 0x10000000, length 16M
         core.MPU.rnr.write(3);
         core.MPU.rbar.write(0x10000000);
+        // NOTE: we of course can't actually write to the flash via the XIP memory map, but
+        // performing writes to the flash memory region flushes the XIP cache for that area of
+        // flash, so the kernel still needs write access
         core.MPU.rasr.write(
             (0b0 << 28) // disable XN
-                | (0b110 << 24) // AP: privileged or unprivileged read-only
+                | (0b010 << 24) // AP: privileged RW, unprivileged RO
                 | (0b000 << 19) // TEX
                 | (0b110 << 16) // S, C, B: shared, write-through
                 | (0b00000000 << 8) // all subregions enabled

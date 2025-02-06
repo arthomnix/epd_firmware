@@ -248,11 +248,9 @@ mod cs {
 }
 
 mod flash {
-    use core::arch::asm;
     use core::sync::atomic::Ordering;
     use eepy_sys::flash::FlashSyscall;
     use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
-    use fw16_epd_bsp::pac;
     use crate::exception::StackFrame;
     use crate::{FLASHING, FLASHING_ACK};
 
@@ -261,7 +259,6 @@ mod flash {
             Some(FlashSyscall::Erase) => handle_erase(stack_values),
             Some(FlashSyscall::Program) => handle_program(stack_values),
             Some(FlashSyscall::EraseAndProgram) => handle_erase_and_program(stack_values),
-            Some(FlashSyscall::InvalidateCache) => handle_invalidate_cache(),
             None => panic!("illegal syscall"),
         }
     }
@@ -304,6 +301,23 @@ mod flash {
         cortex_m::asm::sev();
     }
 
+    fn flush_cache_range(start_addr: u32, len: u32) {
+        // RP2040 Datasheet 2.6.3.2:
+        // "A write to the 0x10… mirror will look up the addressed location in the cache, and delete
+        // any matching entry found. Writing to all word-aligned locations in an address range (e.g.
+        // a flash sector that has just been erased and reprogrammed) therefore eliminates the
+        // possibility of stale cached data in this range, without suffering the effects of a
+        // complete cache flush."
+
+        unsafe {
+            let start_ptr: *mut u32 = XIP_BASE.add(start_addr as usize).cast_mut().cast();
+            let words = len / 4;
+            for _ in 0..words {
+                start_ptr.add(words as usize).write_volatile(0);
+            }
+        }
+    }
+
     fn handle_erase(stack_values: &mut StackFrame) {
         let start_addr = stack_values.r1 as u32;
         let len = stack_values.r2 as u32;
@@ -315,6 +329,7 @@ mod flash {
         begin();
         unsafe {
             rp2040_flash::flash::flash_range_erase(start_addr, len, true);
+            flush_cache_range(start_addr, len);
         }
         end();
     }
@@ -330,6 +345,7 @@ mod flash {
         begin();
         unsafe {
             rp2040_flash::flash::flash_range_program(start_addr, data, true);
+            flush_cache_range(start_addr, data.len() as u32);
         }
         end();
     }
@@ -345,16 +361,8 @@ mod flash {
         begin();
         unsafe {
             rp2040_flash::flash::flash_range_erase_and_program(start_addr, data, true);
+            flush_cache_range(start_addr, data.len() as u32);
         }
         end();
-    }
-
-    fn handle_invalidate_cache() {
-        unsafe {
-            let xip = pac::Peripherals::steal().XIP_CTRL;
-            xip.flush().write(|w| w.flush().set_bit());
-            xip.flush().read();
-            asm!("dsb", "isb");
-        };
     }
 }
