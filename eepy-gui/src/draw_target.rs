@@ -53,13 +53,15 @@ impl DrawTarget for EpdDrawTarget {
     }
 }
 
-impl EpdDrawTarget {
-    pub const fn new() -> Self {
+impl Default for EpdDrawTarget {
+    fn default() -> Self {
         Self {
-            framebuffer: [0; IMAGE_BYTES]
+            framebuffer: [0u8; IMAGE_BYTES],
         }
     }
+}
 
+impl EpdDrawTarget {
     pub fn refresh(&self, fast_refresh: bool, block_mode: RefreshBlockMode) {
         write_image(&self.framebuffer);
         refresh(fast_refresh, block_mode);

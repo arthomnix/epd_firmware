@@ -333,7 +333,7 @@ pub extern "C" fn entry() {
 
     usb::set_handler(serial::usb_handler);
 
-    let mut draw_target = EpdDrawTarget::new();
+    let mut draw_target = EpdDrawTarget::default();
     set_touch_enabled(true);
     let mut gui = MainGui::new();
     gui.draw_init(&mut draw_target);

@@ -30,7 +30,7 @@ static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
 pub extern "C" fn entry() {
     set_touch_enabled(true);
 
-    let mut draw_target = EpdDrawTarget::new();
+    let mut draw_target = EpdDrawTarget::default();
 
     let text = Text::new("Example App", Point::new(10, 20), DEFAULT_TEXT_STYLE);
     let mut button = Button::with_default_style_auto_sized(Point::new(10, 40), "Click me", true);
