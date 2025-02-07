@@ -8,7 +8,7 @@ use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
 use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
 
 pub struct EpdDrawTarget {
-    buf: [u8; IMAGE_BYTES],
+    pub framebuffer: [u8; IMAGE_BYTES],
 }
 
 impl Dimensions for EpdDrawTarget {
@@ -35,8 +35,8 @@ impl DrawTarget for EpdDrawTarget {
             let j = 1 << (bit_index & 0x07);
 
             match colour {
-                BinaryColor::Off => self.buf[i] &= !j,
-                BinaryColor::On => self.buf[i] |= j,
+                BinaryColor::Off => self.framebuffer[i] &= !j,
+                BinaryColor::On => self.framebuffer[i] |= j,
             }
         }
 
@@ -45,8 +45,8 @@ impl DrawTarget for EpdDrawTarget {
 
     fn clear(&mut self, colour: Self::Color) -> Result<(), Self::Error> {
         match colour {
-            BinaryColor::Off => self.buf.copy_from_slice(&[0; IMAGE_BYTES]),
-            BinaryColor::On => self.buf.copy_from_slice(&[u8::MAX; IMAGE_BYTES]),
+            BinaryColor::Off => self.framebuffer.copy_from_slice(&[0; IMAGE_BYTES]),
+            BinaryColor::On => self.framebuffer.copy_from_slice(&[u8::MAX; IMAGE_BYTES]),
         }
 
         Ok(())
@@ -56,12 +56,12 @@ impl DrawTarget for EpdDrawTarget {
 impl EpdDrawTarget {
     pub const fn new() -> Self {
         Self {
-            buf: [0; IMAGE_BYTES]
+            framebuffer: [0; IMAGE_BYTES]
         }
     }
 
     pub fn refresh(&self, fast_refresh: bool, block_mode: RefreshBlockMode) {
-        write_image(&self.buf);
+        write_image(&self.framebuffer);
         refresh(fast_refresh, block_mode);
     }
 }
