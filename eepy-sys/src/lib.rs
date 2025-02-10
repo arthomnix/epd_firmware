@@ -18,6 +18,9 @@ pub mod exec;
 pub mod critical_section;
 #[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod flash;
+#[cfg(all(target_os = "none", target_arch = "arm"))]
+pub mod kv_store;
+
 pub mod input_common;
 
 

@@ -41,3 +41,5 @@ serialport = "4.7"
 tar = "0.4"
 zstd = "0.13"
 strum = { version = "0.26", default-features = false, features = ["derive"] }
+tickv = "2.0"
+siphasher = "1.0"

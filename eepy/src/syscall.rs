@@ -34,6 +34,7 @@ extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
         Some(SyscallNumber::Exec) => handle_exec(stack_values, using_psp),
         Some(SyscallNumber::CriticalSection) => cs::handle_cs(stack_values),
         Some(SyscallNumber::Flash) => flash::handle_flash(stack_values),
+        Some(SyscallNumber::KvStore) => kv_store::handle_kv_store(stack_values),
         None => panic!("illegal syscall"),
     }
 }
@@ -137,39 +138,45 @@ mod misc {
 }
 
 mod image {
-    use core::sync::atomic::Ordering;
-    use eepy_sys::image::{ImageSyscall, RefreshBlockMode};
+    use eepy_sys::image::ImageSyscall;
+    use fw16_epd_bsp::hal::Sio;
+    use fw16_epd_bsp::pac;
     use tp370pgh01::IMAGE_BYTES;
-    use crate::{DO_REFRESH, FAST_REFRESH, IMAGE_BUFFER, REFRESHING};
+    use crate::IMAGE_BUFFER;
+    use crate::core1::{ToCore0Message, ToCore1Message};
     use super::StackFrame;
 
     pub(super) fn handle_image(stack_values: &mut StackFrame) {
         match ImageSyscall::from_repr(stack_values.r0) {
-            Some(ImageSyscall::WriteImage) => handle_write_image(stack_values),
             Some(ImageSyscall::Refresh) => handle_refresh(stack_values),
+            Some(ImageSyscall::MaybeRefresh) => handle_maybe_refresh(stack_values),
             None => panic!("illegal syscall"),
         }
     }
 
-    fn handle_write_image(stack_values: &mut StackFrame) {
-        let image: &[u8; IMAGE_BYTES] = unsafe { &*(stack_values.r1 as *const [u8; IMAGE_BYTES]) };
-        critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
-    }
-
     fn handle_refresh(stack_values: &mut StackFrame) {
         let fast_refresh = stack_values.r1 != 0;
-        let blocking_mode = RefreshBlockMode::from_repr(stack_values.r2).expect("illegal refresh blocking mode");
+        let image: &[u8; IMAGE_BYTES] = unsafe { &*(stack_values.r2 as *const [u8; IMAGE_BYTES]) };
+        critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
 
-        DO_REFRESH.store(true, Ordering::Relaxed);
-        FAST_REFRESH.store(fast_refresh, Ordering::Relaxed);
-        cortex_m::asm::sev();
+        let mut fifo = Sio::new(unsafe { pac::Peripherals::steal() }.SIO).fifo;
+        let message = if fast_refresh { ToCore1Message::RefreshFast } else { ToCore1Message::RefreshNormal };
+        fifo.write_blocking(message as u32);
 
-        if matches!(blocking_mode, RefreshBlockMode::BlockAcknowledge | RefreshBlockMode::BlockFinish) {
-            while DO_REFRESH.load(Ordering::Relaxed) {}
+        if fifo.read_blocking() != ToCore0Message::RefreshAck as u32 {
+            panic!("received incorrect message");
         }
+    }
 
-        if matches!(blocking_mode, RefreshBlockMode::BlockFinish) {
-            while REFRESHING.load(Ordering::Relaxed) {}
+    fn handle_maybe_refresh(stack_values: &mut StackFrame) {
+        let fast_refresh = stack_values.r1 != 0;
+        let image: &[u8; IMAGE_BYTES] = unsafe { &*(stack_values.r2 as *const [u8; IMAGE_BYTES]) };
+        critical_section::with(|cs| IMAGE_BUFFER.borrow_ref_mut(cs).copy_from_slice(image));
+
+        let mut fifo = Sio::new(unsafe { pac::Peripherals::steal() }.SIO).fifo;
+        let message = if fast_refresh { ToCore1Message::MaybeRefreshFast } else { ToCore1Message::MaybeRefreshNormal };
+        if fifo.is_write_ready() {
+            fifo.write(message as u32);
         }
     }
 }
@@ -248,11 +255,10 @@ mod cs {
 }
 
 mod flash {
-    use core::sync::atomic::Ordering;
     use eepy_sys::flash::FlashSyscall;
     use eepy_sys::header::{SLOT_SIZE, XIP_BASE};
     use crate::exception::StackFrame;
-    use crate::{FLASHING, FLASHING_ACK};
+    use crate::flash::{erase, erase_and_program, program};
 
     pub(super) fn handle_flash(stack_values: &mut StackFrame) {
         match FlashSyscall::from_repr(stack_values.r0) {
@@ -283,41 +289,6 @@ mod flash {
         }
     }
 
-    fn begin() {
-        // Make sure core1 is running code from RAM with interrupts disabled
-        FLASHING.store(true, Ordering::Relaxed);
-        cortex_m::asm::sev();
-        // Wait until core1 has acknowledged that it is now in RAM code
-        while !FLASHING_ACK.load(Ordering::Relaxed) {}
-        // Disable interrupts on this core
-        cortex_m::interrupt::disable();
-    }
-
-    fn end() {
-        // Enable interrupts
-        unsafe { cortex_m::interrupt::enable() }
-        // Wake up core1
-        FLASHING.store(false, Ordering::Relaxed);
-        cortex_m::asm::sev();
-    }
-
-    fn flush_cache_range(start_addr: u32, len: u32) {
-        // RP2040 Datasheet 2.6.3.2:
-        // "A write to the 0x10… mirror will look up the addressed location in the cache, and delete
-        // any matching entry found. Writing to all word-aligned locations in an address range (e.g.
-        // a flash sector that has just been erased and reprogrammed) therefore eliminates the
-        // possibility of stale cached data in this range, without suffering the effects of a
-        // complete cache flush."
-
-        unsafe {
-            let start_ptr: *mut u32 = XIP_BASE.add(start_addr as usize).cast_mut().cast();
-            let words = len / 4;
-            for _ in 0..words {
-                start_ptr.add(words as usize).write_volatile(0);
-            }
-        }
-    }
-
     fn handle_erase(stack_values: &mut StackFrame) {
         let start_addr = stack_values.r1 as u32;
         let len = stack_values.r2 as u32;
@@ -326,12 +297,9 @@ mod flash {
             panic!("unaligned flash erase");
         }
 
-        begin();
         unsafe {
-            rp2040_flash::flash::flash_range_erase(start_addr, len, true);
-            flush_cache_range(start_addr, len);
+            erase(start_addr, len);
         }
-        end();
     }
 
     fn handle_program(stack_values: &mut StackFrame) {
@@ -342,12 +310,9 @@ mod flash {
             panic!("unaligned flash program");
         }
 
-        begin();
         unsafe {
-            rp2040_flash::flash::flash_range_program(start_addr, data, true);
-            flush_cache_range(start_addr, data.len() as u32);
+            program(start_addr, data);
         }
-        end();
     }
 
     fn handle_erase_and_program(stack_values: &mut StackFrame) {
@@ -358,11 +323,134 @@ mod flash {
             panic!("unaligned flash erase");
         }
 
-        begin();
         unsafe {
-            rp2040_flash::flash::flash_range_erase_and_program(start_addr, data, true);
-            flush_cache_range(start_addr, data.len() as u32);
+            erase_and_program(start_addr, data);
         }
-        end();
+    }
+}
+
+mod kv_store {
+    use core::hash::Hasher;
+    use siphasher::sip::SipHasher;
+    use tickv::{ErrorCode, TicKV};
+    use eepy_sys::header::{slot, SLOT_SIZE};
+    use eepy_sys::kv_store::{AppendKeyError, DeleteKeyError, KvStoreSyscall, PutKeyError, ReadKeyArgs, ReadKeyError, WriteKeyArgs};
+    use eepy_sys::SafeResult;
+    use crate::exception::StackFrame;
+    use crate::tickv::{with_tickv, EepyFlashController};
+
+    pub(super) fn handle_kv_store(stack_values: &mut StackFrame) {
+        match KvStoreSyscall::from_repr(stack_values.r0) {
+            Some(KvStoreSyscall::ReadKey) => handle_kv_get(stack_values),
+            Some(KvStoreSyscall::AppendKey) => handle_kv_append(stack_values),
+            Some(KvStoreSyscall::PutKey) => handle_kv_put(stack_values),
+            Some(KvStoreSyscall::InvalidateKey) => handle_kv_invalidate(stack_values),
+            Some(KvStoreSyscall::ZeroiseKey) => handle_kv_zeroise(stack_values),
+            None => panic!("illegal syscall"),
+        }
+    }
+
+    fn hash(stack_values: &mut StackFrame, key: &[u8]) -> u64 {
+        let slot_number = (stack_values.pc as usize) / SLOT_SIZE;
+        let slot_header = unsafe { slot(slot_number as u8) };
+        let program_name = unsafe { core::slice::from_raw_parts((*slot_header).name_ptr, (*slot_header).name_len) };
+
+        let mut hasher = SipHasher::new();
+        hasher.write(program_name);
+        hasher.write(key);
+        hasher.finish()
+    }
+
+    fn append_key_gc(tickv: &TicKV<EepyFlashController, 4096>, key: u64, value: &[u8]) -> Result<(), ErrorCode> {
+        let mut res = tickv.append_key(key, value).map(|_| ());
+        if let Err(ErrorCode::RegionFull | ErrorCode::FlashFull) = res {
+            res = tickv.garbage_collect().map(|_| ());
+            if res.is_ok() {
+                res = tickv.append_key(key, value).map(|_| ());
+            }
+        }
+        res
+    }
+
+    fn handle_kv_get(stack_values: &mut StackFrame) {
+        let args = stack_values.r1 as *const ReadKeyArgs;
+        let key = unsafe { core::slice::from_raw_parts((*args).key_ptr, (*args).key_len) };
+        let buf = unsafe { core::slice::from_raw_parts_mut((*args).buf_ptr, (*args).buf_len) };
+
+        let hashed_key = hash(stack_values, key);
+        let res = unsafe { with_tickv(|tickv| tickv.get_key(hashed_key, buf)) };
+
+        let res_ptr = stack_values.r2 as *mut SafeResult<usize, ReadKeyError>;
+        let res: SafeResult<usize, ReadKeyError> = res
+            .map(|(_, read)| read)
+            .map_err(|e| e.try_into().unwrap())
+            .into();
+        unsafe { res_ptr.write(res) };
+    }
+
+    fn handle_kv_append(stack_values: &mut StackFrame) {
+        let args = stack_values.r1 as *const WriteKeyArgs;
+        let key = unsafe { core::slice::from_raw_parts((*args).key_ptr, (*args).key_len) };
+        let value = unsafe { core::slice::from_raw_parts((*args).value_ptr, (*args).value_len) };
+
+        let hashed_key = hash(stack_values, key);
+        let res = unsafe { with_tickv(|tickv| append_key_gc(tickv, hashed_key, value)) };
+
+        let res_ptr = stack_values.r2 as *mut SafeResult<(), AppendKeyError>;
+        let res: SafeResult<(), AppendKeyError> = res
+            .map(|_| ())
+            .map_err(|e| e.try_into().unwrap())
+            .into();
+        unsafe { res_ptr.write(res) };
+    }
+
+    fn handle_kv_put(stack_values: &mut StackFrame) {
+        let args = stack_values.r1 as *const WriteKeyArgs;
+        let key = unsafe { core::slice::from_raw_parts((*args).key_ptr, (*args).key_len) };
+        let value = unsafe { core::slice::from_raw_parts((*args).value_ptr, (*args).value_len) };
+
+        let hashed_key = hash(stack_values, key);
+        let mut res = unsafe { with_tickv(|tickv| append_key_gc(tickv, hashed_key, value)) };
+
+        // if there is already a value for this key, invalidate it and write the new value
+        if let Err(ErrorCode::KeyAlreadyExists) = res {
+            res = unsafe { with_tickv(|tickv| tickv.invalidate_key(hashed_key).map(|_| ())) };
+            if res.is_ok() {
+                res = unsafe { with_tickv(|tickv| append_key_gc(tickv, hashed_key, value)) };
+            }
+        }
+
+        let res_ptr = stack_values.r2 as *mut SafeResult<(), PutKeyError>;
+        let res: SafeResult<(), PutKeyError> = res
+            .map(|_| ())
+            .map_err(|e| e.try_into().unwrap())
+            .into();
+        unsafe { res_ptr.write(res) };
+    }
+
+    fn handle_kv_invalidate(stack_values: &mut StackFrame) {
+        let key = unsafe { core::slice::from_raw_parts(stack_values.r1 as *const u8, stack_values.r2) };
+        let hashed_key = hash(stack_values, key);
+        let res = unsafe { with_tickv(|tickv| tickv.invalidate_key(hashed_key)) };
+
+        let res_ptr = stack_values.r3 as *mut SafeResult<(), DeleteKeyError>;
+        let res: SafeResult<(), DeleteKeyError> = res
+            .map(|_| ())
+            .map_err(|e| e.try_into().unwrap())
+            .into();
+        unsafe { res_ptr.write(res) };
+    }
+
+    fn handle_kv_zeroise(stack_values: &mut StackFrame) {
+        let key = unsafe { core::slice::from_raw_parts(stack_values.r1 as *const u8, stack_values.r2) };
+        let hashed_key = hash(stack_values, key);
+        let res = unsafe { with_tickv(|tickv| tickv.zeroise_key(hashed_key)) };
+
+        let res_ptr = stack_values.r3 as *mut SafeResult<(), DeleteKeyError>;
+        let res: SafeResult<(), DeleteKeyError> = res
+            .map(|_| ())
+            .map_err(|e| e.try_into().unwrap())
+            .into();
+        unsafe { res_ptr.write(res) };
     }
 }

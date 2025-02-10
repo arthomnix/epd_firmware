@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 fw16-epd-bsp = { path = "../fw16-epd-bsp", features = ["defmt"] }
-eepy-sys = { path = "../eepy-sys", features = ["defmt"] }
+eepy-sys = { path = "../eepy-sys", features = ["defmt", "tickv"] }
 tp370pgh01 = { path = "../tp370pgh01", features = ["rp2040", "defmt"] }
 cortex-m.workspace = true
 cortex-m-rt.workspace = true
@@ -19,3 +19,6 @@ portable-atomic.workspace = true
 usb-device = { workspace = true, features = ["defmt"] }
 once_cell.workspace = true
 mcp9808.workspace = true
+tickv.workspace = true
+siphasher.workspace = true
+strum.workspace = true

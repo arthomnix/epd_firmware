@@ -5,7 +5,7 @@ use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
 use eepy_serial::{Response, SerialCommand};
 use eepy_sys::flash::erase_and_program;
-use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
+use eepy_sys::image::refresh;
 use eepy_sys::IMAGE_BYTES;
 use eepy_sys::input::{next_event, set_touch_enabled};
 use eepy_sys::misc::{debug, info, trace};
@@ -119,8 +119,7 @@ pub(crate) extern "C" fn usb_handler() {
                             },
                             Ok(SerialCommand::EnterHostApp) => {
                                 HOST_APP.store(true, Ordering::Relaxed);
-                                write_image(&[0u8; IMAGE_BYTES]);
-                                refresh(false, RefreshBlockMode::NonBlocking);
+                                refresh(&[0u8; IMAGE_BYTES], false);
                                 set_touch_enabled(false);
                                 write_all(serial, &[Response::Ack as u8]);
                             },
@@ -142,8 +141,7 @@ pub(crate) extern "C" fn usb_handler() {
                 if let Ok(count) = serial.read(&mut buf[*index..]) {
                     *index += count;
                     if *index == IMAGE_BYTES {
-                        write_image(buf);
-                        refresh(*fast_refresh, RefreshBlockMode::NonBlocking);
+                        refresh(buf, *fast_refresh);
                         write_all(serial, &[Response::Ack as u8]);
                         *state = SerialState::ReadyForCommand;
                     }

@@ -17,7 +17,6 @@ use eepy_gui::element::button::Button;
 use eepy_gui::element::Gui;
 use eepy_gui::element::slider::Slider;
 use eepy_sys::exec::exec;
-use eepy_sys::image::RefreshBlockMode;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled};
 use eepy_sys::input_common::{Event, TouchEventType};
 use eepy_sys::header::{ProgramSlotHeader, Programs};
@@ -33,7 +32,7 @@ use crate::serial::{HOST_APP, NEEDS_REFRESH, NEEDS_REFRESH_PROGRAMS};
 static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
     "Launcher",
     env!("CARGO_PKG_VERSION"),
-    entry,
+    main,
 );
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -98,7 +97,7 @@ impl Gui for MainPage {
         if s.clicked {
             return Some(Page::ScratchpadPage);
         } else if s.needs_refresh {
-            draw_target.refresh(true, RefreshBlockMode::BlockAcknowledge);
+            draw_target.refresh(true);
         }
 
         for b in &mut self.app_buttons {
@@ -115,7 +114,7 @@ impl Gui for MainPage {
         }
 
         if needs_refresh {
-            draw_target.refresh(true, RefreshBlockMode::NonBlocking);
+            draw_target.refresh(true);
         }
 
         None
@@ -171,40 +170,35 @@ impl Gui for ScratchpadPage {
     }
 
     fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
-        let mut refresh: Option<RefreshBlockMode> = None;
+        let mut refresh = false;
+        let mut maybe_refresh = false;
         let mut handle_drawing: bool = true;
 
         let e = self.exit_button.tick(draw_target, ev);
         if e.clicked {
             return Some(Page::MainPage);
         }
-        if e.needs_refresh {
-            refresh = Some(RefreshBlockMode::BlockAcknowledge);
-        }
+        refresh |= e.needs_refresh;
 
         let c = self.clear_button.tick(draw_target, ev);
         if c.clicked {
             draw_target.clear(BinaryColor::Off).unwrap();
             self.draw_init(draw_target);
-            draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+            draw_target.refresh(false);
             return None;
         }
-        if c.needs_refresh {
-            refresh = Some(RefreshBlockMode::BlockAcknowledge);
-        }
+        refresh |= c.needs_refresh;
 
         let t = self.toggle_button.tick(draw_target, ev);
         if t.clicked {
             self.eraser = !self.eraser;
             self.toggle_button.label = if self.eraser { "Pen" } else { "Eraser" };
-            refresh = Some(RefreshBlockMode::NonBlocking);
         }
-        if t.needs_refresh {
-            refresh = Some(RefreshBlockMode::BlockAcknowledge);
-        }
+        maybe_refresh |= t.clicked;
+        refresh |= t.needs_refresh;
 
         if self.slider.tick(draw_target, ev) {
-            refresh = Some(RefreshBlockMode::NonBlocking);
+            maybe_refresh = true;
             handle_drawing = false;
         }
 
@@ -229,9 +223,7 @@ impl Gui for ScratchpadPage {
 
                     self.draw_init(draw_target);
 
-                    if refresh.is_none() {
-                        refresh = Some(RefreshBlockMode::NonBlocking);
-                    }
+                    maybe_refresh = true;
                 }
             }
 
@@ -240,8 +232,10 @@ impl Gui for ScratchpadPage {
             }
         }
 
-        if let Some(mode) = refresh {
-            draw_target.refresh(true, mode);
+        if refresh {
+            draw_target.refresh(true);
+        } else if maybe_refresh {
+            draw_target.maybe_refresh(true);
         }
 
         None
@@ -290,7 +284,7 @@ impl Gui for MainGui {
             self.current_page = page;
             draw_target.clear(BinaryColor::Off).unwrap();
             self.draw_init(draw_target);
-            draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+            draw_target.refresh(false);
         }
     }
 }
@@ -308,8 +302,7 @@ unsafe fn cleanup_usb() {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn entry() {
+extern "C" fn main() {
     #[allow(static_mut_refs)]
     unsafe {
         let bus = UsbBusAllocator::new(UsbBus::init());
@@ -337,7 +330,7 @@ pub extern "C" fn entry() {
     set_touch_enabled(true);
     let mut gui = MainGui::new();
     gui.draw_init(&mut draw_target);
-    draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+    draw_target.refresh(false);
 
     loop {
         if !HOST_APP.load(Ordering::Relaxed) {
@@ -349,11 +342,11 @@ pub extern "C" fn entry() {
                 gui.main_page.refresh_buttons();
                 if gui.current_page == Page::MainPage {
                     gui.draw_init(&mut draw_target);
-                    draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+                    draw_target.refresh(false);
                 }
             } else if NEEDS_REFRESH.swap(false, Ordering::Relaxed) {
                 gui.draw_init(&mut draw_target);
-                draw_target.refresh(false, RefreshBlockMode::BlockAcknowledge);
+                draw_target.refresh(false);
             } else if !has_event() {
                 // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
                 // WFEs so we don't immediately wake up.

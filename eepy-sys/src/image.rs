@@ -6,36 +6,28 @@ use crate::syscall::SyscallNumber;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ImageSyscall {
-    WriteImage = 0,
-    Refresh = 1,
+    Refresh = 0,
+    MaybeRefresh = 1,
 }
 
-#[repr(usize)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::FromRepr)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RefreshBlockMode {
-    NonBlocking = 0,
-    BlockAcknowledge = 1,
-    BlockFinish = 2,
-}
-
-pub fn write_image(image: &[u8; IMAGE_BYTES]) {
-    unsafe {
-        syscall!(
-            SyscallNumber::Image,
-            in ImageSyscall::WriteImage,
-            in &raw const *image,
-        );
-    }
-}
-
-pub fn refresh(fast_refresh: bool, refresh_block_mode: RefreshBlockMode) {
+pub fn refresh(image: &[u8; IMAGE_BYTES], fast_refresh: bool) {
     unsafe {
         syscall!(
             SyscallNumber::Image,
             in ImageSyscall::Refresh,
             in fast_refresh,
-            in refresh_block_mode,
+            in &raw const *image,
+        );
+    }
+}
+
+pub fn maybe_refresh(image: &[u8; IMAGE_BYTES], fast_refresh: bool) {
+    unsafe {
+        syscall!(
+            SyscallNumber::Image,
+            in ImageSyscall::MaybeRefresh,
+            in fast_refresh,
+            in &raw const *image,
         );
     }
 }

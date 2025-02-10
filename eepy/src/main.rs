@@ -7,6 +7,9 @@ mod syscall;
 mod launcher;
 mod usb;
 mod exception;
+mod tickv;
+mod flash;
+mod core1;
 
 extern crate panic_probe;
 extern crate defmt_rtt;
@@ -38,6 +41,7 @@ use fw16_epd_bsp::pac::interrupt;
 use eepy_sys::input_common::{Event, TouchEvent, TouchEventType};
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
+use crate::core1::{core1_main, ToCore1Message, GLOBAL_EPD, IDLE};
 use crate::ringbuffer::RingBuffer;
 
 const SRAM_END: *mut u8 = 0x20042000 as *mut u8;
@@ -53,35 +57,11 @@ static GLOBAL_TOUCH_RESET_PIN: Mutex<RefCell<Option<EpdTouchReset>>> = Mutex::ne
 static GLOBAL_ALARM0: Mutex<RefCell<Option<Alarm0>>> = Mutex::new(RefCell::new(None));
 
 static IMAGE_BUFFER: Mutex<RefCell<[u8; IMAGE_BYTES]>> = Mutex::new(RefCell::new([0; IMAGE_BYTES]));
-static DO_REFRESH: AtomicBool = AtomicBool::new(false);
-static FAST_REFRESH: AtomicBool = AtomicBool::new(false);
-static REFRESHING: AtomicBool = AtomicBool::new(false);
-static EPD_NEEDS_HARD_RESET: AtomicBool = AtomicBool::new(true);
 static TEMP: AtomicU8 = AtomicU8::new(20);
 static SERIAL_NUMBER: OnceCell<[u8; 16]> = OnceCell::new();
 
 static EVENT_QUEUE: Mutex<RefCell<RingBuffer<Event>>> = Mutex::new(RefCell::new(RingBuffer::new()));
 static TOUCH_ENABLED: AtomicBool = AtomicBool::new(false);
-
-static FLASHING: AtomicBool = AtomicBool::new(false);
-static FLASHING_ACK: AtomicBool = AtomicBool::new(false);
-
-/// Function in RAM to be executed by core1 whilst flashing programs (core1 cannot be executing code
-/// from flash whilst writing/erasing flash)
-///
-/// To exit this function from core0, set [FLASHING] to false and SEV
-#[link_section = ".data.ram_func"]
-fn core1_flash_wait() {
-    cortex_m::interrupt::disable();
-    FLASHING_ACK.store(true, Ordering::Relaxed);
-
-    while FLASHING.load(Ordering::Relaxed) {
-        cortex_m::asm::wfe();
-    }
-
-    FLASHING_ACK.store(false, Ordering::Relaxed);
-    unsafe { cortex_m::interrupt::enable() };
-}
 
 #[entry]
 fn main() -> ! {
@@ -247,49 +227,12 @@ fn main() -> ! {
         core.NVIC.set_priority(interrupt::USBCTRL_IRQ, 0b11000000);
     }
 
+    let epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
+    critical_section::with(|cs| GLOBAL_EPD.borrow_ref_mut(cs).replace(epd));
     let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
     let core1 = &mut mc.cores()[1];
-    core1.spawn(CORE1_STACK.take().unwrap(), move || {
-        info!("core1 init");
-
-        let mut epd = Tp370pgh01::new(cs, IoPin::new(sda), sck, dc, busy, rst, timer, Rp2040PervasiveSpiDelays);
-
-        let mut prev_image = [0u8; IMAGE_BYTES];
-        let mut image = [0u8; IMAGE_BYTES];
-
-        loop {
-            cortex_m::asm::wfe();
-
-            if FLASHING.load(Ordering::Relaxed) {
-                core1_flash_wait();
-                continue;
-            }
-
-            if EPD_NEEDS_HARD_RESET.swap(false, Ordering::Relaxed) {
-                epd.hard_reset().unwrap();
-            }
-
-            REFRESHING.store(true, Ordering::Relaxed);
-
-            if DO_REFRESH.swap(false, Ordering::Relaxed) {
-                if FAST_REFRESH.load(Ordering::Relaxed) {
-                    prev_image.copy_from_slice(&image);
-                    critical_section::with(|cs| image.copy_from_slice(IMAGE_BUFFER.borrow_ref(cs).as_ref()));
-                    epd.soft_reset().unwrap();
-                    epd.refresh_fast(&image, &prev_image, TEMP.load(Ordering::Relaxed)).unwrap();
-                } else {
-                    critical_section::with(|cs| image.copy_from_slice(IMAGE_BUFFER.borrow_ref(cs).as_ref()));
-                    epd.soft_reset().unwrap();
-                    epd.refresh(&image, TEMP.load(Ordering::Relaxed)).unwrap();
-                }
-
-                critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).push(Event::RefreshFinished));
-                cortex_m::asm::sev();
-            }
-
-            REFRESHING.store(false, Ordering::Relaxed);
-        }
-    }).unwrap();
+    core1.spawn(CORE1_STACK.take().unwrap(), core1_main).unwrap();
+    sio.fifo.write_blocking(ToCore1Message::HardResetEpd as u32);
 
     unsafe {
         core.NVIC.set_priority(interrupt::IO_IRQ_BANK0, 0);
@@ -423,7 +366,7 @@ fn IO_IRQ_BANK0() {
             }
 
             // Wait until refresh has finished
-            while REFRESHING.load(Ordering::Relaxed) {}
+            while !IDLE.load(Ordering::Relaxed) {}
 
             // Power down temp sensor
             if let Some(i2c) = &mut i2c {
@@ -458,7 +401,8 @@ fn IO_IRQ_BANK0() {
                 power_pin.set_low().unwrap();
             }
 
-            EPD_NEEDS_HARD_RESET.store(true, Ordering::Relaxed);
+            let mut fifo = Sio::new(unsafe { pac::Peripherals::steal() }.SIO).fifo;
+            fifo.write_blocking(ToCore1Message::HardResetEpd as u32);
 
             if let Some(reset) = TOUCH_RESET_PIN {
                 cortex_m::asm::delay(1000000);

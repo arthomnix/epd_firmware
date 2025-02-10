@@ -9,6 +9,7 @@ pub enum SyscallNumber {
     Exec = 4,
     CriticalSection = 5,
     Flash = 6,
+    KvStore = 7,
 }
 
 /// Perform a raw system call.

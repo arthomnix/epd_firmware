@@ -4,7 +4,7 @@ use embedded_graphics::geometry::Dimensions;
 use embedded_graphics::Pixel;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::Rectangle;
-use eepy_sys::image::{refresh, write_image, RefreshBlockMode};
+use eepy_sys::image::{maybe_refresh, refresh};
 use tp370pgh01::{DIM_X, DIM_Y, IMAGE_BYTES};
 
 pub struct EpdDrawTarget {
@@ -62,8 +62,11 @@ impl Default for EpdDrawTarget {
 }
 
 impl EpdDrawTarget {
-    pub fn refresh(&self, fast_refresh: bool, block_mode: RefreshBlockMode) {
-        write_image(&self.framebuffer);
-        refresh(fast_refresh, block_mode);
+    pub fn refresh(&self, fast_refresh: bool) {
+        refresh(&self.framebuffer, fast_refresh);
+    }
+
+    pub fn maybe_refresh(&self, fast_refresh: bool) {
+        maybe_refresh(&self.framebuffer, fast_refresh);
     }
 }
