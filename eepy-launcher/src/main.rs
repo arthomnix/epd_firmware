@@ -6,22 +6,24 @@ mod serial;
 extern crate panic_halt;
 
 use core::arch::asm;
+use core::mem::offset_of;
 use core::sync::atomic::Ordering;
 use embedded_graphics::geometry::AnchorPoint;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
+use embedded_graphics::text::Text;
 use usb_device::bus::UsbBusAllocator;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
-use eepy_gui::element::Gui;
+use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
 use eepy_gui::element::slider::Slider;
 use eepy_sys::exec::exec;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled};
 use eepy_sys::input_common::{Event, TouchEventType};
-use eepy_sys::header::{ProgramSlotHeader, Programs};
+use eepy_sys::header::{slot, slot_ptr, ProgramSlotHeader, Programs};
 use eepy_sys::misc::get_serial;
-use eepy_sys::usb;
+use eepy_sys::{flash, usb};
 use eepy_sys::usb::UsbBus;
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
@@ -34,12 +36,6 @@ static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
     env!("CARGO_PKG_VERSION"),
     main,
 );
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum Page {
-    MainPage,
-    ScratchpadPage,
-}
 
 struct MainPage {
     scratchpad_button: Button<'static>,
@@ -79,7 +75,7 @@ impl MainPage {
 }
 
 impl Gui for MainPage {
-    type Output = Option<Page>;
+    type Output = Option<PageType>;
 
     fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
         self.scratchpad_button.draw_init(draw_target);
@@ -95,7 +91,7 @@ impl Gui for MainPage {
 
         let s = self.scratchpad_button.tick(draw_target, ev);
         if s.clicked {
-            return Some(Page::ScratchpadPage);
+            return Some(PageType::ScratchpadPage);
         } else if s.needs_refresh {
             draw_target.refresh(true);
         }
@@ -104,7 +100,9 @@ impl Gui for MainPage {
             if let Some((button, s)) = b {
                 let response = button.tick(draw_target, ev);
 
-                if response.clicked {
+                if response.long_clicked {
+                    return Some(PageType::AppInfoPage(*s));
+                } else if response.clicked {
                     unsafe { cleanup_usb() };
                     exec(*s);
                 }
@@ -160,7 +158,7 @@ impl ScratchpadPage {
 }
 
 impl Gui for ScratchpadPage {
-    type Output = Option<Page>;
+    type Output = Option<PageType>;
 
     fn draw_init(&self, draw_target: &mut EpdDrawTarget) {
         self.exit_button.draw_init(draw_target);
@@ -176,7 +174,7 @@ impl Gui for ScratchpadPage {
 
         let e = self.exit_button.tick(draw_target, ev);
         if e.clicked {
-            return Some(Page::MainPage);
+            return Some(PageType::MainPage);
         }
         refresh |= e.needs_refresh;
 
@@ -242,32 +240,114 @@ impl Gui for ScratchpadPage {
     }
 }
 
-struct MainGui {
-    current_page: Page,
-    main_page: MainPage,
-    scratchpad_page: ScratchpadPage,
+struct AppInfoPage {
+    slot: u8,
+    back_button: Button<'static>,
+    delete_button: Button<'static>,
+}
+
+impl AppInfoPage {
+    fn new(slot: u8) -> Self {
+        Self {
+            slot,
+            back_button: Button::with_default_style_auto_sized(Point::new(10, 386), "Back", true),
+            delete_button: Button::with_default_style_auto_sized(Point::new(10, 60), "Delete program", true),
+        }
+    }
+}
+
+impl Gui for AppInfoPage {
+    type Output = Option<PageType>;
+
+    fn draw_init(&self, target: &mut EpdDrawTarget) {
+        let header = unsafe { slot(self.slot) };
+
+        Text::new("Program: ", Point::new(10, 20), DEFAULT_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
+
+        if let Ok(name) = unsafe { (*header).name() } {
+            Text::new(name, Point::new(120, 20), DEFAULT_TEXT_STYLE)
+                .draw(target)
+                .unwrap();
+        } else {
+            Text::new("<invalid>", Point::new(120, 20), DEFAULT_TEXT_STYLE)
+                .draw(target)
+                .unwrap();
+        }
+
+
+        Text::new("Version: ", Point::new(10, 40), DEFAULT_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
+
+        if let Ok(vers) = unsafe { (*header).version() } {
+            Text::new(vers, Point::new(120, 40), DEFAULT_TEXT_STYLE)
+                .draw(target)
+                .unwrap();
+        } else {
+            Text::new("<invalid>", Point::new(120, 40), DEFAULT_TEXT_STYLE)
+                .draw(target)
+                .unwrap();
+        }
+
+        self.back_button.draw_init(target);
+        self.delete_button.draw_init(target);
+    }
+
+    fn tick(&mut self, target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        let b = self.back_button.tick(target, ev);
+        if b.clicked {
+            return Some(PageType::MainPage);
+        }
+
+        let d = self.delete_button.tick(target, ev);
+        if d.clicked {
+            let ptr = unsafe { slot_ptr(self.slot) };
+            let mut buf = [0u8; 256];
+            unsafe { buf.copy_from_slice(core::slice::from_raw_parts(ptr, 256)) };
+            let offset = offset_of!(ProgramSlotHeader, len);
+            buf[offset..offset + 4].copy_from_slice(&[0; 4]);
+
+            unsafe { flash::program(self.slot as u32 * 512 * 1024, &buf) };
+            return Some(PageType::MainPage);
+        }
+
+        None
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum PageType {
+    MainPage,
+    ScratchpadPage,
+    AppInfoPage(u8),
+}
+
+enum MainGui {
+    MainPage(MainPage),
+    ScratchpadPage(ScratchpadPage),
+    AppInfoPage(AppInfoPage),
 }
 
 impl MainGui {
     fn new() -> Self {
-        Self {
-            current_page: Page::MainPage,
-            main_page: MainPage::new(),
-            scratchpad_page: ScratchpadPage::new(),
+        Self::MainPage(MainPage::new())
+    }
+
+    fn get_current_page(&self) -> &dyn Gui<Output = Option<PageType>> {
+        match self {
+            MainGui::MainPage(page) => page,
+            MainGui::ScratchpadPage(page) => page,
+            MainGui::AppInfoPage(page) => page,
         }
     }
 
-    fn get_current_page(&self) -> &dyn Gui<Output = Option<Page>> {
-        match self.current_page {
-            Page::MainPage => &self.main_page,
-            Page::ScratchpadPage => &self.scratchpad_page,
-        }
-    }
-
-    fn get_current_page_mut(&mut self) -> &mut dyn Gui<Output = Option<Page>> {
-        match self.current_page {
-            Page::MainPage => &mut self.main_page,
-            Page::ScratchpadPage => &mut self.scratchpad_page,
+    fn get_current_page_mut(&mut self) -> &mut dyn Gui<Output = Option<PageType>> {
+        match self {
+            MainGui::MainPage(page) => page,
+            MainGui::ScratchpadPage(page) => page,
+            MainGui::AppInfoPage(page) => page,
         }
     }
 }
@@ -281,7 +361,12 @@ impl Gui for MainGui {
 
     fn tick(&mut self, draw_target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
         if let Some(page) = self.get_current_page_mut().tick(draw_target, ev) {
-            self.current_page = page;
+            *self = match page {
+                PageType::MainPage => MainGui::MainPage(MainPage::new()),
+                PageType::ScratchpadPage => MainGui::ScratchpadPage(ScratchpadPage::new()),
+                PageType::AppInfoPage(slot) => MainGui::AppInfoPage(AppInfoPage::new(slot)),
+            };
+
             draw_target.clear(BinaryColor::Off).unwrap();
             self.draw_init(draw_target);
             draw_target.refresh(false);
@@ -339,9 +424,9 @@ extern "C" fn main() {
             }
 
             if NEEDS_REFRESH_PROGRAMS.swap(false, Ordering::Relaxed) {
-                gui.main_page.refresh_buttons();
-                if gui.current_page == Page::MainPage {
-                    gui.draw_init(&mut draw_target);
+                if let MainGui::MainPage(page) = &mut gui {
+                    page.refresh_buttons();
+                    page.draw_init(&mut draw_target);
                     draw_target.refresh(false);
                 }
             } else if NEEDS_REFRESH.swap(false, Ordering::Relaxed) {

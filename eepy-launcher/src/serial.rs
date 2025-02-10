@@ -5,6 +5,7 @@ use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
 use eepy_serial::{Response, SerialCommand};
 use eepy_sys::flash::erase_and_program;
+use eepy_sys::header::{slot, slot_ptr};
 use eepy_sys::image::refresh;
 use eepy_sys::IMAGE_BYTES;
 use eepy_sys::input::{next_event, set_touch_enabled};
@@ -27,6 +28,23 @@ enum SerialState {
         num_pages: Option<usize>,
         remainder: Option<usize>,
     },
+}
+
+fn erase_cycles(slot: u8) -> u32 {
+    let c = unsafe { u32::from_ne_bytes(*slot_ptr(slot).cast()) };
+    if c == u32::MAX {
+        0
+    } else {
+        c
+    }
+}
+
+fn best_slot() -> Option<u8> {
+    (1u8..=31)
+        .filter(|s| unsafe { !(*slot(*s)).is_valid() })
+        .map(|s| (s, erase_cycles(s)))
+        .min_by_key(|(_s, e)| *e)
+        .map(|(s, _e)| s)
 }
 
 unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) {
@@ -106,8 +124,12 @@ pub(crate) extern "C" fn usb_handler() {
                     } else {
                         match SerialCommand::try_from(cmd_buf[0]) {
                             Ok(SerialCommand::GetProgramSlot) => {
-                                write_all(serial, &[Response::Ack as u8, 1]);
-                                PROG_SLOT.store(1, Ordering::Relaxed);
+                                if let Some(slot) = best_slot() {
+                                    write_all(serial, &[Response::Ack as u8, slot]);
+                                    PROG_SLOT.store(slot, Ordering::Relaxed);
+                                } else {
+                                    write_all(serial, &[Response::ProgramSlotsFull as u8]);
+                                }
                             },
                             Ok(SerialCommand::UploadProgram) => {
                                 if PROG_SLOT.load(Ordering::Relaxed) == 0 {
@@ -149,6 +171,8 @@ pub(crate) extern "C" fn usb_handler() {
             }
 
             SerialState::FlashingProgram { index, page, num_pages, remainder } => {
+                let slot = PROG_SLOT.load(Ordering::Relaxed);
+
                 // Write page 0 last - this is the header, so we only want to write it once everything
                 // else is written successfully
                 // Keep page 0 in the first 4096 bytes of BUF for the end
@@ -184,17 +208,20 @@ pub(crate) extern "C" fn usb_handler() {
                             *index = 0;
 
                             // Actually write the flash page
-                            // TODO: get next slot instead of always using slot 1
-                            // TODO: wear levelling
                             debug("writing page");
-                            unsafe { write_flash(&buf[4096..8192], 1, *page) };
+                            unsafe { write_flash(&buf[4096..8192], slot, *page) };
 
                             *page += 1;
                             // If this is the last page, also flash the first page which we didn't
                             // do at the start
                             if *page == num_pages {
                                 debug("finalising");
-                                unsafe { write_flash(&buf[0..4096], 1, 0) };
+
+                                let erase_cycles = erase_cycles(slot);
+                                buf[0..4].copy_from_slice(&(erase_cycles + 1).to_ne_bytes());
+
+                                unsafe { write_flash(&buf[0..4096], slot, 0) };
+                                PROG_SLOT.store(0, Ordering::Relaxed);
 
                                 NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);
                                 info("Finished writing program");

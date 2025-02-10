@@ -104,3 +104,12 @@ pub fn get_time_micros() -> u64 {
 
     ((high_word as u64) << 32) | low_word as u64
 }
+
+
+#[cfg(feature = "fugit")]
+pub type Instant = fugit::TimerInstantU64<1_000_000>;
+
+#[cfg(feature = "fugit")]
+pub fn now() -> Instant {
+    Instant::from_ticks(get_time_micros())
+}

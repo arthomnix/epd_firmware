@@ -4,7 +4,9 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::primitives::{CornerRadii, PrimitiveStyle, Rectangle, RoundedRectangle};
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyle, TextStyleBuilder};
 use embedded_graphics::text::renderer::TextRenderer;
+use fugit::ExtU32;
 use eepy_sys::input_common::{Event, TouchEventType};
+use eepy_sys::misc::{now, Instant};
 use crate::draw_target::EpdDrawTarget;
 use crate::element::{Gui, DEFAULT_PRIMITIVE_STYLE, DEFAULT_TEXT_STYLE};
 
@@ -17,6 +19,7 @@ const CENTRE_STYLE: TextStyle = TextStyleBuilder::new()
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct ButtonOutput {
     pub clicked: bool,
+    pub long_clicked: bool,
     pub needs_refresh: bool,
 }
 
@@ -30,7 +33,7 @@ pub struct Button<'a> {
     pub touch_feedback: bool,
     pub touch_feedback_immediate_release: bool,
 
-    began_click: bool,
+    click_begin_time: Option<Instant>,
     inverted: bool,
     should_uninvert: bool,
 }
@@ -44,7 +47,7 @@ impl<'a> Button<'a> {
             char_style,
             touch_feedback,
             touch_feedback_immediate_release,
-            began_click: false,
+            click_begin_time: None,
             inverted: false,
             should_uninvert: false,
         }
@@ -59,7 +62,7 @@ impl<'a> Button<'a> {
             char_style,
             touch_feedback,
             touch_feedback_immediate_release,
-            began_click: false,
+            click_begin_time: None,
             inverted: false,
             should_uninvert: false,
         }
@@ -73,7 +76,7 @@ impl<'a> Button<'a> {
             char_style: DEFAULT_TEXT_STYLE,
             touch_feedback: true,
             touch_feedback_immediate_release,
-            began_click: false,
+            click_begin_time: None,
             inverted: false,
             should_uninvert: false,
         }
@@ -122,17 +125,17 @@ impl<'a> Gui for Button<'a> {
 
         if let Event::Touch(ev) = ev {
             if self.rect.contains(ev.eg_point()) {
-                match (self.began_click, ev.ev_type) {
-                    (false, TouchEventType::Down) => {
-                        self.began_click = true;
+                match (self.click_begin_time, ev.ev_type) {
+                    (None, TouchEventType::Down) => {
+                        self.click_begin_time = Some(now());
                         if self.touch_feedback {
                             self.invert();
                             self.draw_init(target);
                             ret.needs_refresh = true;
                         }
                     },
-                    (true, TouchEventType::Up) => {
-                        self.began_click = false;
+                    (Some(t), TouchEventType::Up) => {
+                        self.click_begin_time = None;
                         if self.inverted {
                             if self.touch_feedback_immediate_release {
                                 self.invert();
@@ -142,12 +145,16 @@ impl<'a> Gui for Button<'a> {
                                 self.should_uninvert = true;
                             }
                         }
+
                         ret.clicked = true;
+                        if now().checked_duration_since(t).unwrap() > 500.millis::<1, 1_000_000>() {
+                            ret.long_clicked = true;
+                        }
                     },
                     _ => {},
                 }
             } else {
-                self.began_click = false;
+                self.click_begin_time = None;
                 if self.inverted {
                     if self.touch_feedback_immediate_release {
                         self.invert();

@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eepy-sys = { path = "../eepy-sys", features = ["embedded-graphics"] }
+eepy-sys = { path = "../eepy-sys", features = ["embedded-graphics", "fugit"] }
 tp370pgh01 = { path = "../tp370pgh01" }
 embedded-graphics.workspace = true
 defmt = { workspace = true, optional = true }
+fugit.workspace = true
 
 [features]
 defmt-derive = ["defmt", "tp370pgh01/defmt", "embedded-graphics/defmt"]

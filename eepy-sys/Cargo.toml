@@ -14,7 +14,8 @@ critical-section = { workspace = true, optional = true }
 once_cell = { workspace = true, optional = true }
 strum.workspace = true
 tickv = { workspace = true, optional = true }
+fugit = { workspace = true, optional = true }
 
 [features]
-defmt = ["dep:defmt", "usb-device/defmt"]
+defmt = ["dep:defmt", "usb-device/defmt", "fugit/defmt", "embedded-graphics/defmt"]
 critical-section-impl = ["critical-section", "critical-section/restore-state-bool", "once_cell"]

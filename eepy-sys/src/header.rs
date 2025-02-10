@@ -8,17 +8,21 @@ pub const PROGRAM_RAM_AREA_BASE: *mut u8 = 0x20020000 as *mut u8;
 
 pub const SLOT_SIZE: usize = 0x80000;
 
-pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader {
+pub const unsafe fn slot_ptr(id: u8) -> *const u8 {
     if id > 31 {
         panic!("slot ID must be between 0 and 31");
     }
 
     if id == 0 {
         // "Slot 0" is used for the launcher, which is stored 128K into the flash
-        XIP_BASE.add(128 * 1024).cast()
+        XIP_BASE.add(128 * 1024)
     } else {
-        XIP_BASE.add(SLOT_SIZE * id as usize).cast()
+        XIP_BASE.add(SLOT_SIZE * id as usize)
     }
+}
+
+pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader {
+    slot_ptr(id).cast()
 }
 
 
