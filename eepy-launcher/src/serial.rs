@@ -12,6 +12,7 @@ use eepy_sys::input::{next_event, set_touch_enabled};
 use eepy_sys::misc::{debug, info, trace};
 use eepy_sys::usb::UsbBus;
 use crate::{USB_DEVICE, USB_SERIAL};
+use crate::ui::flashing::draw_flashing_ui;
 
 #[derive(Copy, Clone, Debug)]
 enum SerialState {
@@ -135,6 +136,7 @@ pub(crate) extern "C" fn usb_handler() {
                                 if PROG_SLOT.load(Ordering::Relaxed) == 0 {
                                     write_all(serial, &[Response::NoProgramSlot as u8]);
                                 } else {
+                                    set_touch_enabled(false);
                                     *state = SerialState::FlashingProgram { index: 0, page: 0, num_pages: None, remainder: None };
                                     write_all(serial, &[Response::Ack as u8]);
                                 }
@@ -177,6 +179,7 @@ pub(crate) extern "C" fn usb_handler() {
                 // else is written successfully
                 // Keep page 0 in the first 4096 bytes of BUF for the end
                 if *page == 0 {
+                    draw_flashing_ui(*page, None);
                     debug("receiving page 0");
                     if let Ok(count) = serial.read(&mut buf[*index..4096]) {
                         *index += count;
@@ -195,6 +198,7 @@ pub(crate) extern "C" fn usb_handler() {
                         }
                     }
                 } else {
+                    draw_flashing_ui(*page, *num_pages);
                     if let Ok(count) = serial.read(&mut buf[(4096 + *index)..8192]) {
                         let mut message = heapless::String::<32>::new();
                         write!(message, "receiving page {page}").unwrap();
@@ -224,6 +228,7 @@ pub(crate) extern "C" fn usb_handler() {
                                 PROG_SLOT.store(0, Ordering::Relaxed);
 
                                 NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);
+                                set_touch_enabled(true);
                                 info("Finished writing program");
 
                                 *state = SerialState::ReadyForCommand;

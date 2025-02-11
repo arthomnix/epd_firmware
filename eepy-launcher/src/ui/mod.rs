@@ -8,6 +8,7 @@ use crate::ui::page::main::MainPage;
 use crate::ui::page::scratchpad::ScratchpadPage;
 
 mod page;
+pub(crate) mod flashing;
 
 pub(crate) enum MainGui {
     MainPage(MainPage),

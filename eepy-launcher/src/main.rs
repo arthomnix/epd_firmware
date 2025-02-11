@@ -65,8 +65,8 @@ fn main() {
                 if let MainGui::MainPage(page) = &mut gui {
                     page.refresh_buttons();
                     page.draw_init(&mut draw_target);
-                    draw_target.refresh(false);
                 }
+                draw_target.refresh(false);
             } else if NEEDS_REFRESH.swap(false, Ordering::Relaxed) {
                 gui.draw_init(&mut draw_target);
                 draw_target.refresh(false);
