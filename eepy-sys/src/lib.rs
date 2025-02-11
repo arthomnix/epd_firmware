@@ -1,5 +1,7 @@
 #![no_std]
 
+pub use eepy_derive::eepy_app;
+
 #[cfg(all(target_os = "none", target_arch = "arm"))]
 pub mod header;
 #[cfg(all(target_os = "none", target_arch = "arm"))]

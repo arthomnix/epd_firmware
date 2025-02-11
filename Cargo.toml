@@ -13,6 +13,7 @@ members = [
     "tp370pgh01",
     "eepy-launcher",
     "eepytool",
+    "eepy-derive",
 ]
 
 [workspace.dependencies]

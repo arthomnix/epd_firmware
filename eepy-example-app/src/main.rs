@@ -14,17 +14,8 @@ use heapless::String;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
-use eepy_sys::header::ProgramSlotHeader;
 use eepy_sys::input::{has_event, next_event, set_touch_enabled};
-use eepy_sys::kv_store;
-
-#[link_section = ".header"]
-#[used]
-static HEADER: ProgramSlotHeader = ProgramSlotHeader::partial(
-    "ExampleApp",
-    env!("CARGO_PKG_VERSION"),
-    main,
-);
+use eepy_sys::{eepy_app, kv_store};
 
 fn load_counter() -> u32 {
     let mut buf = [0u8; size_of::<i32>()];
@@ -46,7 +37,8 @@ fn render_counter(draw_target: &mut EpdDrawTarget, counter: u32) {
         .unwrap();
 }
 
-extern "C" fn main() {
+#[eepy_app(name = "ExampleApp")]
+fn main() {
     set_touch_enabled(true);
 
     let mut draw_target = EpdDrawTarget::default();

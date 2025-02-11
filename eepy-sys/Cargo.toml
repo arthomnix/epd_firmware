@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+eepy-derive = { path = "../eepy-derive" }
 tp370pgh01 = { path = "../tp370pgh01" }
 defmt = { workspace = true, optional = true }
 embedded-graphics = { workspace = true, optional = true }

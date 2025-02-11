@@ -16,6 +16,7 @@
       <sourceFolder url="file://$MODULE_DIR$/eepy/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/eepy-launcher/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/eepytool/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/eepy-derive/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/fw16_epd_bsp/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/fw16-epd-bsp/target" />
