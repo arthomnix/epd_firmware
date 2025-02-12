@@ -1,11 +1,12 @@
 use eepy_gui::element::button::Button;
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::Rectangle;
 use embedded_graphics::text::Text;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
 use eepy_sys::header::slot;
 use eepy_sys::input_common::Event;
-use crate::delete_program;
+use crate::{delete_program, get_autostart, set_autostart};
 use crate::ui::MainGui;
 use crate::ui::page::main::MainPage;
 
@@ -13,14 +14,28 @@ pub(crate) struct AppInfoPage {
     slot: u8,
     back_button: Button<'static>,
     delete_button: Button<'static>,
+    autostart_button: Button<'static>,
 }
 
 impl AppInfoPage {
+    fn autostart_label(slot: u8) -> &'static str {
+        if get_autostart() == Some(slot) {
+            "Disable autostart"
+        } else {
+            "Enable autostart"
+        }
+    }
+
     pub(crate) fn new(slot: u8) -> Self {
         Self {
             slot,
             back_button: Button::with_default_style_auto_sized(Point::new(10, 386), "Back", true),
             delete_button: Button::with_default_style_auto_sized(Point::new(10, 60), "Delete program", true),
+            autostart_button: Button::with_default_style(
+                Rectangle::new(Point::new(10, 90), Size::new((10 * "Disable autostart".len() + 5) as u32, 20)),
+                Self::autostart_label(slot),
+                true
+            ),
         }
     }
 }
@@ -62,6 +77,7 @@ impl Gui for AppInfoPage {
 
         self.back_button.draw_init(target);
         self.delete_button.draw_init(target);
+        self.autostart_button.draw_init(target);
     }
 
     fn tick(&mut self, target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
@@ -79,6 +95,20 @@ impl Gui for AppInfoPage {
             return Some(MainGui::MainPage(MainPage::new()));
         }
         refresh |= d.needs_refresh;
+
+        let a = self.autostart_button.tick(target, ev);
+        if a.clicked {
+            if get_autostart() == Some(self.slot) {
+                set_autostart(None);
+            } else {
+                set_autostart(Some(self.slot));
+            }
+
+            self.autostart_button.label = Self::autostart_label(self.slot);
+            self.autostart_button.draw_init(target);
+            refresh = true;
+        }
+        refresh |= a.needs_refresh;
 
         if refresh {
             target.refresh(true);

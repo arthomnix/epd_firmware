@@ -16,6 +16,7 @@ extern crate defmt_rtt;
 
 use core::arch::asm;
 use core::cell::RefCell;
+use core::hint::unreachable_unchecked;
 use critical_section::Mutex;
 use defmt::{debug, info, trace, warn};
 use embedded_hal::delay::DelayNs;
@@ -28,7 +29,6 @@ use mcp9808::reg_temp_generic::ReadableTempRegister;
 use once_cell::sync::OnceCell;
 use portable_atomic::{AtomicBool, AtomicU8};
 use portable_atomic::Ordering;
-use eepy_sys::exec::exec;
 use fw16_epd_bsp::{entry, hal, pac, EpdBusy, EpdCs, EpdDc, EpdPowerSwitch, EpdReset, EpdSck, EpdSdaWrite, EpdTouchInt, EpdTouchReset, I2CScl, I2CSda, LaptopSleep, Pins};
 use fw16_epd_bsp::hal::{Sio, Timer, I2C};
 use fw16_epd_bsp::hal::clocks::ClockSource;
@@ -39,6 +39,8 @@ use fw16_epd_bsp::hal::timer::{Alarm, Alarm0};
 use fw16_epd_bsp::pac::I2C0;
 use fw16_epd_bsp::pac::interrupt;
 use eepy_sys::input_common::{Event, TouchEvent, TouchEventType};
+use eepy_sys::kv_store;
+use eepy_sys::syscall::SyscallNumber;
 use tp370pgh01::rp2040::{Rp2040PervasiveSpiDelays, IoPin};
 use tp370pgh01::{Tp370pgh01, IMAGE_BYTES};
 use crate::core1::{core1_main, ToCore1Message, GLOBAL_EPD, IDLE};
@@ -241,16 +243,33 @@ fn main() -> ! {
         pac::NVIC::unmask(interrupt::SW0_IRQ);
     };
 
+    let mut buf = [0u8; 1];
+    // NOTE: since the kernel sits within the first 512K of flash, it counts as the same program
+    // as the launcher for KV purposes, so we can read the autostart value set by the launcher
+    let slot = if kv_store::get(b"autostart", &mut buf).is_ok() {
+        buf[0]
+    } else {
+        0
+    };
+
+    enter_userspace(slot);
+}
+
+fn enter_userspace(slot: u8) -> ! {
     unsafe {
         asm!(
             "msr psp, {sram_end}",
             "msr control, {control_0b10}",
             "isb",
+            "svc #{exec}",
             sram_end = in(reg) SRAM_END,
             control_0b10 = in(reg) 0b10,
+            in("r0") slot,
+            exec = const SyscallNumber::Exec as u8,
         );
 
-        exec(0);
+        // SAFETY: the exec syscall never returns
+        unreachable_unchecked();
     }
 }
 

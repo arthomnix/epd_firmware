@@ -17,7 +17,7 @@ use eepy_sys::misc::get_serial;
 use eepy_sys::usb::{self, UsbBus};
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
-use eepy_sys::{eepy_app, flash};
+use eepy_sys::{eepy_app, flash, kv_store};
 use eepy_sys::header::{slot_ptr, ProgramSlotHeader};
 use crate::serial::{HOST_APP, NEEDS_REFRESH, NEEDS_REFRESH_PROGRAMS};
 use crate::ui::MainGui;
@@ -27,6 +27,10 @@ static mut USB_DEVICE: Option<UsbDevice<UsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<UsbBus>> = None;
 
 pub(crate) unsafe fn delete_program(slot: u8) {
+    if get_autostart() == Some(slot) {
+        set_autostart(None);
+    }
+
     let ptr = unsafe { slot_ptr(slot) };
     let mut buf = [0u8; 256];
     unsafe { buf.copy_from_slice(core::slice::from_raw_parts(ptr, 256)) };
@@ -34,6 +38,21 @@ pub(crate) unsafe fn delete_program(slot: u8) {
     buf[offset..offset + 4].copy_from_slice(&0usize.to_ne_bytes());
 
     unsafe { flash::program(slot as u32 * 512 * 1024, &buf) };
+}
+
+pub(crate) fn get_autostart() -> Option<u8> {
+    let mut buf = [0u8; 1];
+    kv_store::get(b"autostart", &mut buf).ok()?;
+
+    if buf[0] == 0 {
+        None
+    } else {
+        Some(buf[0])
+    }
+}
+
+pub(crate) fn set_autostart(slot: Option<u8>) {
+    let _ignored = kv_store::put(b"autostart", &[slot.unwrap_or(0)]);
 }
 
 #[eepy_app(name = "Launcher")]
