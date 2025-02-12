@@ -162,7 +162,7 @@ impl ProgramSlotHeader {
         }
 
         if self.bss_len > 0 {
-            if !ram_range.contains(&(self.bss_vma as usize)) || !ram_range.contains(&(self.data_vma as usize + self.data_len - 1)) {
+            if !ram_range.contains(&(self.bss_vma as usize)) || !ram_range.contains(&(self.bss_vma as usize + self.bss_len - 1)) {
                 #[cfg(feature = "defmt")]
                 warn!("Program has invalid bss section addresses");
                 return false;
