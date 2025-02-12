@@ -7,6 +7,7 @@ mod ui;
 extern crate panic_halt;
 
 use core::arch::asm;
+use core::mem::offset_of;
 use core::sync::atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use eepy_gui::draw_target::EpdDrawTarget;
@@ -16,13 +17,24 @@ use eepy_sys::misc::get_serial;
 use eepy_sys::usb::{self, UsbBus};
 use usb_device::prelude::*;
 use usbd_serial::SerialPort;
-use eepy_sys::eepy_app;
+use eepy_sys::{eepy_app, flash};
+use eepy_sys::header::{slot_ptr, ProgramSlotHeader};
 use crate::serial::{HOST_APP, NEEDS_REFRESH, NEEDS_REFRESH_PROGRAMS};
 use crate::ui::MainGui;
 
 static mut USB: Option<UsbBusAllocator<UsbBus>> = None;
 static mut USB_DEVICE: Option<UsbDevice<UsbBus>> = None;
 static mut USB_SERIAL: Option<SerialPort<UsbBus>> = None;
+
+pub(crate) unsafe fn delete_program(slot: u8) {
+    let ptr = unsafe { slot_ptr(slot) };
+    let mut buf = [0u8; 256];
+    unsafe { buf.copy_from_slice(core::slice::from_raw_parts(ptr, 256)) };
+    let offset = offset_of!(ProgramSlotHeader, len);
+    buf[offset..offset + 4].copy_from_slice(&0usize.to_ne_bytes());
+
+    unsafe { flash::program(slot as u32 * 512 * 1024, &buf) };
+}
 
 #[eepy_app(name = "Launcher")]
 fn main() {

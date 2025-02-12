@@ -5,13 +5,13 @@ use usb_device::device::UsbDevice;
 use usbd_serial::SerialPort;
 use eepy_serial::{Response, SerialCommand};
 use eepy_sys::flash::erase_and_program;
-use eepy_sys::header::{slot, slot_ptr};
+use eepy_sys::header::{slot, slot_ptr, Programs};
 use eepy_sys::image::refresh;
-use eepy_sys::IMAGE_BYTES;
+use eepy_sys::{header, IMAGE_BYTES};
 use eepy_sys::input::{next_event, set_touch_enabled};
 use eepy_sys::misc::{debug, info, trace};
 use eepy_sys::usb::UsbBus;
-use crate::{USB_DEVICE, USB_SERIAL};
+use crate::{delete_program, USB_DEVICE, USB_SERIAL};
 use crate::ui::flashing::draw_flashing_ui;
 
 #[derive(Copy, Clone, Debug)]
@@ -225,6 +225,22 @@ pub(crate) extern "C" fn usb_handler() {
                                 buf[0..4].copy_from_slice(&(erase_cycles + 1).to_ne_bytes());
 
                                 unsafe { write_flash(&buf[0..4096], slot, 0) };
+
+                                let this_header = unsafe { header::slot(slot) };
+                                let this_name = unsafe { core::slice::from_raw_parts((*this_header).name_ptr, (*this_header).name_len) };
+
+                                // If there is an old program with the same name, delete it
+                                Programs::new()
+                                    .filter_map(|prog| unsafe {
+                                        let name = core::slice::from_raw_parts((*prog).name_ptr, (*prog).name_len);
+                                        if (*prog).slot() != slot && name == this_name {
+                                            Some((*prog).slot())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .for_each(|slot| unsafe { delete_program(slot) });
+
                                 PROG_SLOT.store(0, Ordering::Relaxed);
 
                                 NEEDS_REFRESH_PROGRAMS.store(true, Ordering::Relaxed);

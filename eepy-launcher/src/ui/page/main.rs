@@ -16,20 +16,29 @@ pub(crate) struct MainPage {
 }
 
 impl MainPage {
+    fn app_button(x: usize, y: usize, label: &'static str) -> Button<'static> {
+        let x_coord = 10 + 115 * x as i32;
+        let y_coord = 8 + 25 * y as i32;
+        Button::with_default_style(
+            Rectangle::new(Point::new(x_coord, y_coord), Size::new(105, 20)),
+            label,
+            false,
+        )
+    }
+
     pub(crate) fn refresh_buttons(&mut self) {
         let mut programs = Programs::new();
 
         for y in 0..16 {
             for x in 0..2 {
+                // Reserve the first space for the scratchpad
+                if x == 0 && y == 0 {
+                    continue;
+                }
+
                 if let Some(prog) = programs.next() {
                     let bi = y * 2 + x;
-                    let x_coord = if x == 0 { 10 } else { 125 };
-                    let y_coord = 35 + 23 * y as i32;
-                    let button = Button::with_default_style(
-                        Rectangle::new(Point::new(x_coord, y_coord), Size::new(105, 20)),
-                        unsafe { (*prog).name().unwrap() },
-                        false,
-                    );
+                    let button = Self::app_button(x, y, unsafe { (*prog).name().unwrap_or("<invalid>") });
                     let slot_num = unsafe { (&*prog).slot() };
                     self.app_buttons[bi] = Some((button, slot_num))
                 }
@@ -39,7 +48,11 @@ impl MainPage {
 
     pub(crate) fn new() -> Self {
         let mut res = Self {
-            scratchpad_button: Button::with_default_style_auto_sized(Point::new(10, 10), "Scratchpad", true),
+            scratchpad_button: Button::with_default_style(
+                Rectangle::new(Point::new(10, 8), Size::new(105, 20)),
+                "Scratchpad",
+                true
+            ),
             app_buttons: [const { None }; 32],
         };
         res.refresh_buttons();
@@ -69,7 +82,7 @@ impl Gui for MainPage {
             draw_target.refresh(true);
         }
 
-        for b in &mut self.app_buttons {
+        for b in &mut self.app_buttons[1..] {
             if let Some((button, s)) = b {
                 let response = button.tick(draw_target, ev);
 

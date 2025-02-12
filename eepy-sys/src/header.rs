@@ -128,13 +128,13 @@ impl ProgramSlotHeader {
             return false;
         }
 
-        if self.name().is_err() {
+        if unsafe { self.name() }.is_err() {
             #[cfg(feature = "defmt")]
             warn!("Program name is not valid UTF-8");
             return false;
         }
 
-        if self.version().is_err() {
+        if unsafe { self.version() }.is_err() {
             #[cfg(feature = "defmt")]
             warn!("Program version string is not valid UTF-8");
             return false;
@@ -187,13 +187,13 @@ impl ProgramSlotHeader {
         crc == self.crc
     }
 
-    pub fn name(&self) -> Result<&str, Utf8Error> {
+    pub unsafe fn name(&self) -> Result<&str, Utf8Error> {
         unsafe {
             core::str::from_utf8(core::slice::from_raw_parts(self.name_ptr, self.name_len))
         }
     }
 
-    pub fn version(&self) -> Result<&str, Utf8Error> {
+    pub unsafe fn version(&self) -> Result<&str, Utf8Error> {
         unsafe {
             core::str::from_utf8(core::slice::from_raw_parts(self.version_ptr, self.version_len))
         }

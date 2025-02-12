@@ -1,12 +1,11 @@
-use core::mem::offset_of;
 use eepy_gui::element::button::Button;
 use embedded_graphics::prelude::*;
 use embedded_graphics::text::Text;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
-use eepy_sys::flash;
-use eepy_sys::header::{slot, slot_ptr, ProgramSlotHeader};
+use eepy_sys::header::slot;
 use eepy_sys::input_common::Event;
+use crate::delete_program;
 use crate::ui::MainGui;
 use crate::ui::page::main::MainPage;
 
@@ -66,21 +65,23 @@ impl Gui for AppInfoPage {
     }
 
     fn tick(&mut self, target: &mut EpdDrawTarget, ev: Event) -> Self::Output {
+        let mut refresh = false;
+
         let b = self.back_button.tick(target, ev);
         if b.clicked {
             return Some(MainGui::MainPage(MainPage::new()));
         }
+        refresh |= b.needs_refresh;
 
         let d = self.delete_button.tick(target, ev);
         if d.clicked {
-            let ptr = unsafe { slot_ptr(self.slot) };
-            let mut buf = [0u8; 256];
-            unsafe { buf.copy_from_slice(core::slice::from_raw_parts(ptr, 256)) };
-            let offset = offset_of!(ProgramSlotHeader, len);
-            buf[offset..offset + 4].copy_from_slice(&[0; 4]);
-
-            unsafe { flash::program(self.slot as u32 * 512 * 1024, &buf) };
+            unsafe { delete_program(self.slot) };
             return Some(MainGui::MainPage(MainPage::new()));
+        }
+        refresh |= d.needs_refresh;
+
+        if refresh {
+            target.refresh(true);
         }
 
         None
