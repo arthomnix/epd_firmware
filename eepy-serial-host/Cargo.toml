@@ -1,0 +1,9 @@
+[package]
+name = "eepy-serial-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eepy-serial = { path = "../eepy-serial" }
+serialport.workspace = true
+postcard.workspace = true

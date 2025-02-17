@@ -1,11 +1,10 @@
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::PathBuf;
-use std::time::Duration;
 use clap::{Parser, Subcommand};
-use serialport::SerialPort;
 use tar::Archive;
-use eepy_serial::{Event, Response, SerialCommand, SerialError};
+use eepy_serial_host::{Normal, Serial};
+use eepy_serial_host::image::IMAGE_BYTES;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -25,6 +24,8 @@ enum Subcommands {
     Refresh {
         #[arg(long, action)]
         fast: bool,
+        #[arg(long, action)]
+        maybe: bool,
         #[arg(short, long)]
         image: PathBuf,
     },
@@ -40,37 +41,19 @@ enum Subcommands {
 
 use Subcommands::*;
 
-fn write(serial: &mut Box<dyn SerialPort>, command: SerialCommand, data: &[u8]) -> Result<(), SerialError> {
-    serial.write_all(&[command as u8]).unwrap();
-    serial.write_all(data).unwrap();
-    let mut response_buf = [0u8];
-    serial.read_exact(&mut response_buf).unwrap();
-    Response::try_from(response_buf[0]).unwrap().into()
-}
+fn upload_program(serial: &mut Serial<Normal>, path: PathBuf) -> color_eyre::Result<()> {
+    let slot_n = serial.get_slot()?;
 
-fn next_event(serial: &mut Box<dyn SerialPort>) -> Result<Option<Event>, SerialError> {
-    write(serial, SerialCommand::NextEvent, &[])?;
-    let mut event_buf = [0u8; 32];
-    serial.read(&mut event_buf).unwrap();
-    Ok(postcard::from_bytes(&event_buf).unwrap())
-}
-
-fn upload_program(serial: &mut Box<dyn SerialPort>, path: PathBuf) -> Result<(), SerialError> {
-    write(serial, SerialCommand::GetProgramSlot, &[])?;
-    let mut slot_n = [0u8];
-    serial.read_exact(&mut slot_n).unwrap();
-    let slot_n = slot_n[0];
-
-    let file = File::open(path).unwrap();
-    let zstd_reader = zstd::stream::read::Decoder::new(file).unwrap();
+    let file = File::open(path)?;
+    let zstd_reader = zstd::stream::read::Decoder::new(file)?;
     let mut tar = Archive::new(zstd_reader);
-    for file in tar.entries().unwrap() {
-        let mut file = file.unwrap();
-        if file.path().unwrap().to_str().unwrap().ends_with(&format!(".s{slot_n:02}.epb")) {
-            println!("Uploading {}", file.path().unwrap().to_str().unwrap());
+    for file in tar.entries()? {
+        let mut file = file?;
+        if file.path()?.to_str().unwrap().ends_with(&format!(".s{slot_n:02}.epb")) {
+            println!("Uploading {}", file.path()?.to_str().unwrap());
             let mut buf = vec![0u8; file.size() as usize];
-            file.read_exact(&mut buf).unwrap();
-            write(serial, SerialCommand::UploadProgram, &buf)?;
+            file.read_exact(&mut buf)?;
+            serial.upload(&buf)?;
             return Ok(());
         }
     }
@@ -78,26 +61,30 @@ fn upload_program(serial: &mut Box<dyn SerialPort>, path: PathBuf) -> Result<(),
     panic!("App package did not contain binary for slot {slot_n}");
 }
 
-fn main() {
+fn main() -> color_eyre::Result<()> {
     let args = Args::parse();
 
-    // Baud rate setting doesn't matter for pure USB serial so use 0
-    let mut port = serialport::new(&args.serial_port, 0)
-        .timeout(Duration::from_secs(60))
-        .open()
-        .expect(&format!("Failed to open serial port {}", args.serial_port));
+    let port = Serial::new(&args.serial_port)?;
 
     match args.command {
-        EnterHostApp => write(&mut port, SerialCommand::EnterHostApp, &[]).unwrap(),
-        ExitHostApp => write(&mut port, SerialCommand::ExitHostApp, &[]).unwrap(),
-        Refresh { fast, image } => {
-            let data = std::fs::read(image).unwrap();
-            let cmd = if fast { SerialCommand::RefreshFast } else { SerialCommand::RefreshNormal };
-            write(&mut port, cmd, &data).unwrap();
+        EnterHostApp => { port.host_app()?; },
+        ExitHostApp => { port.normal()?; },
+        Refresh { fast, maybe, image } => {
+            let mut buf = [0u8; IMAGE_BYTES];
+            let mut file = File::open(image)?;
+            file.read_exact(&mut buf)?;
+
+            if maybe {
+                port.host_app()?.maybe_refresh(fast, &buf)?;
+            } else {
+                port.host_app()?.refresh(fast, &buf)?;
+            }
         },
-        DisableTouch => write(&mut port, SerialCommand::DisableTouch, &[]).unwrap(),
-        EnableTouch => write(&mut port, SerialCommand::EnableTouch, &[]).unwrap(),
-        NextEvent => println!("{:?}", next_event(&mut port).unwrap()),
-        UploadProgram { package } => upload_program(&mut port, package).unwrap(),
-    };
+        DisableTouch => port.host_app()?.set_touch_enabled(false)?,
+        EnableTouch => port.host_app()?.set_touch_enabled(true)?,
+        NextEvent => println!("{:?}", port.host_app()?.next_event()?),
+        UploadProgram { package } => upload_program(&mut port.normal()?, package)?,
+    }
+
+    Ok(())
 }

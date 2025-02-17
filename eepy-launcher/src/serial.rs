@@ -7,7 +7,7 @@ use eepy_serial::{Response, SerialCommand};
 use eepy_sys::flash::erase_and_program;
 use eepy_sys::header::{slot, slot_ptr, Programs};
 use eepy_sys::image::refresh;
-use eepy_sys::{header, IMAGE_BYTES};
+use eepy_sys::{header, image, IMAGE_BYTES};
 use eepy_sys::input::{next_event, set_touch_enabled};
 use eepy_sys::misc::{debug, info, trace};
 use eepy_sys::usb::UsbBus;
@@ -20,6 +20,7 @@ enum SerialState {
 
     ReceivingImage {
         fast_refresh: bool,
+        maybe_refresh: bool,
         index: usize,
     },
 
@@ -96,35 +97,37 @@ pub(crate) extern "C" fn usb_handler() {
                     }
 
                     if HOST_APP.load(Ordering::Relaxed) {
-                        match SerialCommand::try_from(cmd_buf[0]) {
-                            Ok(SerialCommand::RefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, index: 0 },
-                            Ok(SerialCommand::RefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, index: 0 },
-                            Ok(SerialCommand::ExitHostApp) => {
+                        match SerialCommand::from_repr(cmd_buf[0]) {
+                            Some(SerialCommand::RefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, maybe_refresh: false, index: 0 },
+                            Some(SerialCommand::RefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, maybe_refresh: false, index: 0 },
+                            Some(SerialCommand::MaybeRefreshNormal) => *state = SerialState::ReceivingImage { fast_refresh: false, maybe_refresh: true, index: 0 },
+                            Some(SerialCommand::MaybeRefreshFast) => *state = SerialState::ReceivingImage { fast_refresh: true, maybe_refresh: true, index: 0 },
+                            Some(SerialCommand::ExitHostApp) => {
                                 set_touch_enabled(true);
                                 HOST_APP.store(false, Ordering::Relaxed);
                                 NEEDS_REFRESH.store(true, Ordering::Relaxed);
                                 write_all(serial, &[Response::Ack as u8]);
                             },
-                            Ok(SerialCommand::NextEvent) => {
+                            Some(SerialCommand::NextEvent) => {
                                 write_all(serial, &[Response::Ack as u8]);
                                 write_all(serial, &postcard::to_vec::<_, 32>(&next_event()).unwrap());
                             },
-                            Ok(SerialCommand::EnableTouch) => {
+                            Some(SerialCommand::EnableTouch) => {
                                 set_touch_enabled(true);
                                 write_all(serial, &[Response::Ack as u8]);
                             },
-                            Ok(SerialCommand::DisableTouch) => {
+                            Some(SerialCommand::DisableTouch) => {
                                 set_touch_enabled(false);
                                 write_all(serial, &[Response::Ack as u8]);
                             },
-                            Ok(SerialCommand::EnterHostApp | SerialCommand::GetProgramSlot | SerialCommand::UploadProgram) => {
+                            Some(SerialCommand::EnterHostApp | SerialCommand::GetProgramSlot | SerialCommand::UploadProgram) => {
                                 write_all(serial, &[Response::IncorrectMode as u8]);
                             }
-                            Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
+                            None => write_all(serial, &[Response::UnknownCommand as u8]),
                         }
                     } else {
-                        match SerialCommand::try_from(cmd_buf[0]) {
-                            Ok(SerialCommand::GetProgramSlot) => {
+                        match SerialCommand::from_repr(cmd_buf[0]) {
+                            Some(SerialCommand::GetProgramSlot) => {
                                 if let Some(slot) = best_slot() {
                                     write_all(serial, &[Response::Ack as u8, slot]);
                                     PROG_SLOT.store(slot, Ordering::Relaxed);
@@ -132,7 +135,7 @@ pub(crate) extern "C" fn usb_handler() {
                                     write_all(serial, &[Response::ProgramSlotsFull as u8]);
                                 }
                             },
-                            Ok(SerialCommand::UploadProgram) => {
+                            Some(SerialCommand::UploadProgram) => {
                                 if PROG_SLOT.load(Ordering::Relaxed) == 0 {
                                     write_all(serial, &[Response::NoProgramSlot as u8]);
                                 } else {
@@ -141,31 +144,37 @@ pub(crate) extern "C" fn usb_handler() {
                                     write_all(serial, &[Response::Ack as u8]);
                                 }
                             },
-                            Ok(SerialCommand::EnterHostApp) => {
+                            Some(SerialCommand::EnterHostApp) => {
                                 HOST_APP.store(true, Ordering::Relaxed);
                                 refresh(&[0u8; IMAGE_BYTES], false);
                                 set_touch_enabled(false);
                                 write_all(serial, &[Response::Ack as u8]);
                             },
-                            Ok(
+                            Some(
                                 SerialCommand::RefreshNormal
                                 | SerialCommand::RefreshFast
+                                | SerialCommand::MaybeRefreshNormal
+                                | SerialCommand::MaybeRefreshFast
                                 | SerialCommand::ExitHostApp
                                 | SerialCommand::NextEvent
                                 | SerialCommand::DisableTouch
                                 | SerialCommand::EnableTouch
                             ) => write_all(serial, &[Response::IncorrectMode as u8]),
-                            Err(_) => write_all(serial, &[Response::UnknownCommand as u8]),
+                            None => write_all(serial, &[Response::UnknownCommand as u8]),
                         }
                     }
                 }
             }
 
-            SerialState::ReceivingImage { fast_refresh, index } => {
+            SerialState::ReceivingImage { fast_refresh, maybe_refresh, index } => {
                 if let Ok(count) = serial.read(&mut buf[*index..]) {
                     *index += count;
                     if *index == IMAGE_BYTES {
-                        refresh(buf, *fast_refresh);
+                        if *maybe_refresh {
+                            image::maybe_refresh(buf, *fast_refresh);
+                        } else {
+                            image::refresh(buf, *fast_refresh);
+                        }
                         write_all(serial, &[Response::Ack as u8]);
                         *state = SerialState::ReadyForCommand;
                     }

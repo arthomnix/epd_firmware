@@ -6,6 +6,7 @@ members = [
     "eepy",
     "eepy-sys",
     "eepy-serial",
+    "eepy-serial-host",
     "eepy-gui",
     "eepy-example-app",
     "elf2epb",

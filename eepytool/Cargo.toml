@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eepy-serial = { path = "../eepy-serial" }
-postcard.workspace = true
+eepy-serial-host = { path = "../eepy-serial-host" }
+color-eyre = "0.6.3"
 clap.workspace = true
-serialport.workspace = true
 tar.workspace = true
 zstd.workspace = true

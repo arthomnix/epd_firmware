@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 eepy-sys = { path = "../eepy-sys" }
+strum.workspace = true
