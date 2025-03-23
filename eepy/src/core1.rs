@@ -22,7 +22,7 @@ pub(crate) static IDLE: AtomicBool = AtomicBool::new(true);
 
 /// Function in RAM to be executed by core1 whilst flashing programs (core1 cannot be executing code
 /// from flash whilst writing/erasing flash)
-#[link_section = ".data.ram_func"]
+#[unsafe(link_section = ".data.ram_func")]
 fn core1_flash_wait(fifo: &mut SioFifo) {
     cortex_m::interrupt::free(|_cs| {
         fifo.write_blocking(ToCore0Message::FlashAck as u32);

@@ -94,6 +94,6 @@ unsafe fn init_tickv() -> TicKV<'static, EepyFlashController, 4096> {
 }
 
 #[allow(static_mut_refs)]
-pub(crate) unsafe fn with_tickv<R>(f: impl FnOnce(&TicKV<EepyFlashController, 4096>) -> R) -> R {
+pub(crate) unsafe fn with_tickv<R>(f: impl FnOnce(&TicKV<EepyFlashController, 4096>) -> R) -> R { unsafe {
     f(TICKV.get_or_init(|| init_tickv()))
-}
+}}

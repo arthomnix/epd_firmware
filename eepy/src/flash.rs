@@ -37,20 +37,20 @@ fn flush_cache_range(start_addr: u32, len: u32) {
     }
 }
 
-pub(crate) unsafe fn erase(start_addr: u32, len: u32) {
+pub(crate) unsafe fn erase(start_addr: u32, len: u32) { unsafe {
     trace!("flash erasing start {} len {}", start_addr, len);
     flash_op(|| rp2040_flash::flash::flash_range_erase(start_addr, len, true));
     flush_cache_range(start_addr, len);
-}
+}}
 
-pub(crate) unsafe fn program(start_addr: u32, data: &[u8]) {
+pub(crate) unsafe fn program(start_addr: u32, data: &[u8]) { unsafe {
     trace!("flash programming start {} len {}", start_addr, data.len());
     flash_op(|| rp2040_flash::flash::flash_range_program(start_addr, data, true));
     flush_cache_range(start_addr, data.len() as u32);
-}
+}}
 
-pub(crate) unsafe fn erase_and_program(start_addr: u32, data: &[u8]) {
+pub(crate) unsafe fn erase_and_program(start_addr: u32, data: &[u8]) { unsafe {
     trace!("flash programming and erasing start {} len {}", start_addr, data.len());
     flash_op(|| rp2040_flash::flash::flash_range_erase_and_program(start_addr, data, true));
     flush_cache_range(start_addr, data.len() as u32);
-}
+}}

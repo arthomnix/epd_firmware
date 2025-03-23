@@ -23,7 +23,7 @@ global_asm!(include_str!("syscall.s"));
 /// This stack location contains (in order): r0, r1, r2, r3, r12, lr, pc, xPSR.
 /// The pc value from the stack can be used to extract the literal operand from the SVC instruction
 /// which triggered the syscall.
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn handle_syscall(sp: *mut StackFrame, using_psp: bool) {
     // Stack contains R0, R1, R2, R3, R12, LR, ReturnAddress, xPSR
     let stack_values = unsafe { &mut *sp };

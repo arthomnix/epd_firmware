@@ -96,11 +96,11 @@ pub(crate) fn init_usb(regs: USBCTRL_REGS, dpram: USBCTRL_DPRAM, clock: UsbClock
 
 static USB_HANDLER: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
 
-extern "C" {
+unsafe extern "C" {
     fn usb_ret();
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn handle_usb_irq(sp: *mut StackFrame, using_psp: bool) {
     trace!("USBCTRL_IRQ");
 
