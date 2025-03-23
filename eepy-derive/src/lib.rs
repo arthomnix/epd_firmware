@@ -37,7 +37,7 @@ pub fn eepy_app(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let output = quote! {
-        #[link_section = ".header"]
+        #[unsafe(link_section = ".header")]
         #[used]
         static HEADER: ::eepy_sys::header::ProgramSlotHeader = ::eepy_sys::header::ProgramSlotHeader::partial(
             #name,
