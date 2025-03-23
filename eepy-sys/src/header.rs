@@ -8,7 +8,7 @@ pub const PROGRAM_RAM_AREA_BASE: *mut u8 = 0x20020000 as *mut u8;
 
 pub const SLOT_SIZE: usize = 0x80000;
 
-pub const unsafe fn slot_ptr(id: u8) -> *const u8 {
+pub const unsafe fn slot_ptr(id: u8) -> *const u8 { unsafe {
     if id > 31 {
         panic!("slot ID must be between 0 and 31");
     }
@@ -19,11 +19,11 @@ pub const unsafe fn slot_ptr(id: u8) -> *const u8 {
     } else {
         XIP_BASE.add(SLOT_SIZE * id as usize)
     }
-}
+}}
 
-pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader {
+pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader { unsafe {
     slot_ptr(id).cast()
-}
+}}
 
 
 pub struct Programs {
@@ -199,7 +199,7 @@ impl ProgramSlotHeader {
         }
     }
 
-    pub unsafe fn load(&self) {
+    pub unsafe fn load(&self) { unsafe {
         if self.data_len > 0 {
             core::ptr::copy_nonoverlapping(self.data_lma, self.data_vma, self.data_len);
         }
@@ -207,5 +207,5 @@ impl ProgramSlotHeader {
         if self.bss_len > 0 {
             self.bss_vma.write_bytes(0, self.bss_len);
         }
-    }
+    }}
 }
