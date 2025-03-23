@@ -2,7 +2,7 @@
 name = "fw16-epd-bsp"
 version = "0.1.0"
 authors = ["arthomnix"]
-edition = "2021"
+edition = "2024"
 description = "Board Support Package for arthomnix's touchscreen e-paper input module for the Framework 16"
 license = "MIT"
 
