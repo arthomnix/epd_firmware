@@ -2,6 +2,8 @@
 name = "elf2epb"
 version = "0.1.0"
 edition = "2024"
+authors = ["arthomnix"]
+license = "MIT"
 
 [dependencies]
 elf.workspace = true

@@ -2,6 +2,8 @@
 name = "tp370pgh01"
 version = "0.1.0"
 edition = "2024"
+authors = ["arthomnix"]
+license = "MIT"
 
 [dependencies]
 pervasive-spi = { path = "../pervasive-spi" }

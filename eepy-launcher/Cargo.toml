@@ -2,6 +2,8 @@
 name = "eepy-launcher"
 version = "0.1.0"
 edition = "2024"
+authors = ["arthomnix"]
+license = "MIT"
 
 [dependencies]
 eepy-sys = { path = "../eepy-sys", features = ["critical-section-impl"] }

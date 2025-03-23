@@ -3,6 +3,8 @@ name = "pervasive-spi"
 version = "0.1.1"
 edition = "2024"
 description = "Bitbang driver for the SPI-derived protocol used by Pervasive Displays e-paper displays"
+authors = ["arthomnix"]
+license = "MIT"
 
 [dependencies]
 embedded-hal.workspace = true
