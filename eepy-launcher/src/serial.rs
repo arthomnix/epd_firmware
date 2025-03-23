@@ -49,9 +49,9 @@ fn best_slot() -> Option<u8> {
         .map(|(s, _e)| s)
 }
 
-unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) {
+unsafe fn write_flash(buf: &[u8], slot: u8, page: usize) { unsafe {
     erase_and_program((slot as u32) * 512 * 1024 + (page as u32) * 4096, buf);
-}
+}}
 
 fn write_all(serial: &mut SerialPort<UsbBus>, mut buf: &[u8]) {
     while !buf.is_empty() {
