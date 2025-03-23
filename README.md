@@ -15,3 +15,6 @@ Summary of crates:
 * `fw16-epd-bsp` - Board Support Package for the Touchscreen E-Paper Input Module
 * `pervasive-spi` - Bitbanging driver for the 3-wire SPI protocol used by Pervasive Displays e-paper panels, such as the one on the Input Module
 * `tp370pgh01` - Driver for the specific display used on the Touchscreen E-Paper Input Module (display only; touch is handled directly in the kernel)
+
+This repository is mirrored at [GitHub](https://github.com/arthomnix/epd_firmware)
+and [Tangled (alpha)](https://tangled.sh/@arthomnix.dev/eepy).
