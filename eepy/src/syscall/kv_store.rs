@@ -1,7 +1,7 @@
 use core::hash::Hasher;
 use siphasher::sip::SipHasher;
 use tickv::{ErrorCode, TicKV};
-use eepy_sys::header::{slot, SLOT_SIZE, XIP_BASE};
+use eepy_sys::header::{slot, slot_of_addr};
 use eepy_sys::kv_store::{AppendKeyError, DeleteKeyError, KvStoreSyscall, PutKeyError, ReadKeyArgs, ReadKeyError, WriteKeyArgs};
 use eepy_sys::SafeResult;
 use crate::exception::StackFrame;
@@ -19,8 +19,8 @@ pub(super) fn handle_kv_store(stack_values: &mut StackFrame) {
 }
 
 fn hash(stack_values: &mut StackFrame, key: &[u8]) -> u64 {
-    let slot_number = (stack_values.pc as usize - XIP_BASE as usize) / SLOT_SIZE;
-    let slot_header = unsafe { slot(slot_number as u8) };
+    let slot_number = slot_of_addr(stack_values.pc);
+    let slot_header = unsafe { slot(slot_number) };
     let program_name = unsafe { core::slice::from_raw_parts((*slot_header).name_ptr, (*slot_header).name_len) };
 
     let mut hasher = SipHasher::new();
