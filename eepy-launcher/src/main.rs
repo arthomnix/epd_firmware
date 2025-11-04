@@ -6,13 +6,12 @@ mod ui;
 
 extern crate panic_halt;
 
-use core::arch::asm;
 use core::mem::offset_of;
 use core::sync::atomic::Ordering;
 use usb_device::bus::UsbBusAllocator;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::Gui;
-use eepy_sys::input::{has_event, next_event, set_touch_enabled};
+use eepy_sys::input::{eep, next_event, set_touch_enabled};
 use eepy_sys::misc::get_serial;
 use eepy_sys::usb::{self, UsbBus};
 use usb_device::prelude::*;
@@ -101,10 +100,8 @@ fn main() {
             } else if NEEDS_REFRESH.swap(false, Ordering::Relaxed) {
                 gui.draw_init(&mut draw_target);
                 draw_target.refresh(false);
-            } else if !has_event() {
-                // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
-                // WFEs so we don't immediately wake up.
-                unsafe { asm!("wfe", "wfe") };
+            } else {
+                eep();
             }
         }
     }

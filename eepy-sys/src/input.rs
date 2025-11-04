@@ -1,3 +1,4 @@
+use core::arch::asm;
 use core::mem::MaybeUninit;
 use crate::{syscall, SafeOption};
 use crate::input_common::Event;
@@ -47,4 +48,17 @@ pub fn has_event() -> bool {
     }
 
     has_event != 0
+}
+
+/// If there are no events remaining in the event queue, allow the processor to enter a sleep state
+/// until there is a new event ready.
+#[inline(always)]
+pub fn eep() {
+    if !has_event() {
+        // SAFETY: "wfe" only (maybe) puts the processor to sleep temporarily and doesn't access any
+        // memory so this specific instruction is safe
+        // has_event() is a syscall. The SVCall exception is a WFE wakeup event, so we need two
+        // WFEs so we don't immediately wake up.
+        unsafe { asm!("wfe", "wfe"); }
+    }
 }
