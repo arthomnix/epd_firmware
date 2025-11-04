@@ -1,13 +1,17 @@
 use core::arch::asm;
+use core::sync::atomic::Ordering;
 use eepy_sys::exec::exec;
 use eepy_sys::header::slot;
 use crate::exception::StackFrame;
-use crate::SRAM_END;
+use crate::{EVENT_QUEUE, SRAM_END, TOUCH_ENABLED};
 
 pub(super) fn handle_exec(stack_values: &mut StackFrame, using_psp: bool) {
     // cleanup previous program's USB
     crate::usb::handle_uninit();
     crate::usb::handle_clear_handler();
+    // disable touch (programs should enable when needed)
+    TOUCH_ENABLED.store(false, Ordering::Relaxed);
+    critical_section::with(|cs| EVENT_QUEUE.borrow_ref_mut(cs).clear());
 
     // disable privileged mode
     unsafe {
