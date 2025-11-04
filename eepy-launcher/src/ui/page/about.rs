@@ -7,6 +7,7 @@ use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
 use eepy_sys::input_common::Event;
+use eepy_sys::misc::get_serial;
 use crate::ui::MainGui;
 use crate::ui::page::main::MainPage;
 
@@ -31,13 +32,19 @@ impl Gui for AboutPage {
         Text::new(concat!("eepyOS (Launcher ", env!("CARGO_PKG_VERSION"), ")"), Point::new(5, 190), DEFAULT_TEXT_STYLE)
             .draw(target)
             .unwrap();
-        Text::new(concat!("built ", env!("EEPY_LAUNCHER_BUILD_DATE")), Point::new(40, 210), DEFAULT_TEXT_STYLE)
+        Text::new(concat!("built ", env!("EEPY_LAUNCHER_BUILD_DATE")), Point::new(27, 210), SMALL_ITALIC_TEXT_STYLE)
             .draw(target)
             .unwrap();
-        Text::new("(c) 2025 arthomnix - MIT licensed", Point::new(18, 300), SMALL_ITALIC_TEXT_STYLE)
+        Text::new("Serial number: ", Point::new(27, 240), SMALL_ITALIC_TEXT_STYLE)
             .draw(target)
             .unwrap();
-        Text::new("https://tangled.org/@arthomnix.dev/eepy", Point::new(3, 316), SMALL_ITALIC_TEXT_STYLE)
+        Text::new(get_serial(), Point::new(27 + 6 * "Serial number: ".len() as i32, 240), SMALL_ITALIC_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
+        Text::new("(c) 2025 arthomnix - MIT licensed", Point::new(18, 384), SMALL_ITALIC_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
+        Text::new("https://tangled.org/@arthomnix.dev/eepy", Point::new(3, 400), SMALL_ITALIC_TEXT_STYLE)
             .draw(target)
             .unwrap();
         self.back_button.draw_init(target);
