@@ -3,6 +3,7 @@ use embedded_graphics::prelude::*;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::Gui;
 use eepy_sys::input_common::Event;
+use crate::ui::page::about::AboutPage;
 use crate::ui::page::app_info::AppInfoPage;
 use crate::ui::page::main::MainPage;
 use crate::ui::page::scratchpad::ScratchpadPage;
@@ -14,6 +15,7 @@ pub(crate) enum MainGui {
     MainPage(MainPage),
     ScratchpadPage(ScratchpadPage),
     AppInfoPage(AppInfoPage),
+    AboutPage(AboutPage),
 }
 
 impl MainGui {
@@ -26,6 +28,7 @@ impl MainGui {
             MainGui::MainPage(page) => page,
             MainGui::ScratchpadPage(page) => page,
             MainGui::AppInfoPage(page) => page,
+            MainGui::AboutPage(page) => page,
         }
     }
 
@@ -34,6 +37,7 @@ impl MainGui {
             MainGui::MainPage(page) => page,
             MainGui::ScratchpadPage(page) => page,
             MainGui::AppInfoPage(page) => page,
+            MainGui::AboutPage(page) => page,
         }
     }
 }
