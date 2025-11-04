@@ -1,3 +1,4 @@
+use core::fmt::Write;
 use eepy_gui::element::button::Button;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
@@ -30,9 +31,9 @@ impl AppInfoPage {
         Self {
             slot,
             back_button: Button::with_default_style_auto_sized(Point::new(10, 386), "Back", true),
-            delete_button: Button::with_default_style_auto_sized(Point::new(10, 60), "Delete program", true),
+            delete_button: Button::with_default_style_auto_sized(Point::new(10, 80), "Delete program", true),
             autostart_button: Button::with_default_style(
-                Rectangle::new(Point::new(10, 90), Size::new((10 * "Disable autostart".len() + 5) as u32, 20)),
+                Rectangle::new(Point::new(10, 110), Size::new((10 * "Disable autostart".len() + 5) as u32, 20)),
                 Self::autostart_label(slot),
                 true
             ),
@@ -46,7 +47,7 @@ impl Gui for AppInfoPage {
     fn draw_init(&self, target: &mut EpdDrawTarget) {
         let header = unsafe { slot(self.slot) };
 
-        Text::new("Program: ", Point::new(10, 20), DEFAULT_TEXT_STYLE)
+        Text::new("Program:", Point::new(10, 20), DEFAULT_TEXT_STYLE)
             .draw(target)
             .unwrap();
 
@@ -61,7 +62,7 @@ impl Gui for AppInfoPage {
         }
 
 
-        Text::new("Version: ", Point::new(10, 40), DEFAULT_TEXT_STYLE)
+        Text::new("Version:", Point::new(10, 40), DEFAULT_TEXT_STYLE)
             .draw(target)
             .unwrap();
 
@@ -74,6 +75,15 @@ impl Gui for AppInfoPage {
                 .draw(target)
                 .unwrap();
         }
+
+        Text::new("Slot:", Point::new(10, 60), DEFAULT_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
+        let mut slot_s = heapless::String::<2>::new();
+        write!(slot_s, "{}", self.slot).unwrap();
+        Text::new(&slot_s, Point::new(120, 60), DEFAULT_TEXT_STYLE)
+            .draw(target)
+            .unwrap();
 
         self.back_button.draw_init(target);
         self.delete_button.draw_init(target);

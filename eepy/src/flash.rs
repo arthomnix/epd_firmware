@@ -30,9 +30,9 @@ fn flush_cache_range(start_addr: u32, len: u32) {
 
     unsafe {
         let start_ptr: *mut u32 = XIP_BASE.add(start_addr as usize).cast_mut().cast();
-        let words = len / 4;
-        for _ in 0..words {
-            start_ptr.add(words as usize).write_volatile(0);
+        let words = len / size_of::<u32>() as u32;
+        for word in 0..words {
+            start_ptr.add(word as usize).write_volatile(0);
         }
     }
 }
