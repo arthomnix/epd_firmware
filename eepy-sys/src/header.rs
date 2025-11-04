@@ -25,6 +25,10 @@ pub const unsafe fn slot(id: u8) -> *const ProgramSlotHeader { unsafe {
     slot_ptr(id).cast()
 }}
 
+pub fn slot_of_addr<T>(addr: *const T) -> u8 {
+    ((addr as usize - XIP_BASE as usize) / SLOT_SIZE) as u8
+}
+
 
 pub struct Programs {
     id: u8,
@@ -208,4 +212,15 @@ impl ProgramSlotHeader {
             self.bss_vma.write_bytes(0, self.bss_len);
         }
     }}
+}
+
+/// Get the slot number of the (first) program with the specified name, if it exists.
+pub fn find_program_by_name(name: &str) -> Option<u8> {
+    Programs::new()
+        .find(|psh| {
+            // SAFETY: a header returned by Programs must be valid
+            let prog_name = unsafe { (**psh).name() };
+            prog_name == Ok(name)
+        })
+        .map(slot_of_addr)
 }
