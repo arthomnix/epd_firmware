@@ -57,12 +57,15 @@ fn main() {
 
     loop {
         while let Some(ev) = next_event() {
-            if exit_button.tick(&mut draw_target, ev).clicked {
+            let mut needs_refresh = false;
+
+            let exit_res = exit_button.tick(&mut draw_target, ev);
+            if exit_res.clicked {
                 save_counter(counter);
                 return;
+            } else if exit_res.needs_refresh {
+                draw_target.refresh(true);
             }
-
-            let mut needs_refresh = false;
 
             let response = button.tick(&mut draw_target, ev);
             if response.clicked {
