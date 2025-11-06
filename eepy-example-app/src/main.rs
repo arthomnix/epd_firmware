@@ -3,7 +3,6 @@
 
 extern crate panic_halt;
 
-use core::arch::asm;
 use core::fmt::Write;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::Drawable;
@@ -14,7 +13,7 @@ use heapless::String;
 use eepy_gui::draw_target::EpdDrawTarget;
 use eepy_gui::element::button::Button;
 use eepy_gui::element::{Gui, DEFAULT_TEXT_STYLE};
-use eepy_sys::input::{has_event, next_event, set_touch_enabled};
+use eepy_sys::input::{eep, next_event, set_touch_enabled};
 use eepy_sys::{eepy_app, kv_store};
 
 fn load_counter() -> u32 {
@@ -83,8 +82,6 @@ fn main() {
             }
         }
 
-        if !has_event() {
-            unsafe { asm!("wfe", "wfe") };
-        }
+        eep();
     }
 }
