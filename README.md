@@ -5,7 +5,7 @@ eepyOS is a barebones, application-specific, single-tasking operating system in 
 Summary of crates:
 * `eepy` - eepyOS kernel
 * `eepy-sys` - library defining the kernel's syscall interface and binary format and providing safe abstractions
-* `eepy-derive` - proc macro crate for eepy-sys
+* `eepy-derive` - proc macro crate for eepy-sys (the name is a misnomer as it doesn't actually contain any derive macros, but it's too late to change now)
 * `eepy-launcher` - the userspace component of eepyOS which handles the launcher UI
 * `eepy-gui` - barebones UI library for eepyOS applications based on `embedded-graphics`
 * `eepy-example-app` - example userspace application for eepyOS
